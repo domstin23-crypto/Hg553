@@ -1,4 +1,5 @@
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -11,6 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Download HG553 kernel artifact
         uses: actions/download-artifact@v4
@@ -21,9 +23,44 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: kernel-artifact
 
-      - name: Inspect downloaded files
+      - name: Install build tools
         run: |
-          echo "Kernel files:"
-          find kernel-artifact -name Module.symvers
-          echo "Toolchains:"
-          find kernel-artifact -type f -name 'mips*-gcc'
+          sudo apt-get update
+          sudo apt-get install -y git make bc
+
+      - name: Clone RTL8188EUS driver
+        run: |
+          git clone --depth 1 https://github.com/aircrack-ng/rtl8188eus.git driver
+
+      - name: Configure build paths
+        run: |
+          echo "KSRC=$GITHUB_WORKSPACE/kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin/mips-openwrt-linux-musl-" >> $GITHUB_ENV
+
+      - name: Verify kernel and compiler
+        run: |
+          test -f "$KSRC/Module.symvers"
+          test -x "${CROSS_COMPILE}gcc"
+          echo "Kernel and compiler found."
+
+      - name: Build driver
+        run: |
+          sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
+          make -C driver \
+            KSRC="$KSRC" \
+            ARCH=mips \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            modules
+
+      - name: Check driver
+        run: |
+          find driver -name '*.ko' -print
+          test -f driver/8188eu.ko
+
+      - name: Upload compiled driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg553-8188eu-driver
+          path: driver/8188eu.ko
+          if-no-files-found: error
+
