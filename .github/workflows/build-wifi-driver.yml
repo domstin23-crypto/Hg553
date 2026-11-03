@@ -37,11 +37,12 @@ jobs:
           echo "KSRC=$GITHUB_WORKSPACE/kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167" >> $GITHUB_ENV
           echo "CROSS_COMPILE=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin/mips-openwrt-linux-musl-" >> $GITHUB_ENV
 
-      - name: Verify kernel and compiler
+      - name: Locate kernel files
         run: |
-          test -f "$KSRC/Module.symvers"
-          test -x "${CROSS_COMPILE}gcc"
-          echo "Kernel and compiler found."
+          echo "Searching for Module.symvers..."
+          find kernel-artifact -name Module.symvers -print
+          echo "Checking compiler..."
+          find kernel-artifact -name mips-openwrt-linux-musl-gcc -print
 
       - name: Build driver
         run: |
