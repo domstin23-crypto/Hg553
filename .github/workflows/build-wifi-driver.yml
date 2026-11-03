@@ -1,5 +1,6 @@
 
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -35,17 +36,24 @@ jobs:
       - name: Configure build paths
         run: |
           echo "KSRC=$GITHUB_WORKSPACE/kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin/mips-openwrt-linux-musl-" >> $GITHUB_ENV
+          echo "STAGING_DIR=$GITHUB_WORKSPACE/kernel-artifact/staging_dir" >> $GITHUB_ENV
+          echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl" >> $GITHUB_ENV
+          echo "PATH=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin:$PATH" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=mips-openwrt-linux-musl-" >> $GITHUB_ENV
+
       - name: Restore executable permissions
         run: |
-          chmod -R u+x kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin
-          chmod +x kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167/scripts/pahole-flags.sh
+          chmod -R u+x "$TOOLCHAIN_DIR"
+          chmod +x "$KSRC/scripts/pahole-flags.sh"
+
       - name: Locate kernel files
         run: |
           echo "Searching for Module.symvers..."
           find kernel-artifact -name Module.symvers -print
           echo "Checking compiler..."
           find kernel-artifact -name mips-openwrt-linux-musl-gcc -print
+          echo "Checking internal compiler..."
+          find "$TOOLCHAIN_DIR" -name cc1 -print
 
       - name: Build driver
         run: |
@@ -67,4 +75,5 @@ jobs:
           name: hg553-8188eu-driver
           path: driver/8188eu.ko
           if-no-files-found: error
+
 
