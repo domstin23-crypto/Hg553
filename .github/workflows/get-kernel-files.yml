@@ -1,9 +1,4 @@
-      - name: Install OpenWrt toolchain
-        working-directory: openwrt
-        run: |
-          make tools/install -j2 V=s
-          make toolchain/install -j2 V=s
-          
+
 name: Prepare HG553 kernel build
 
 on:
@@ -45,6 +40,12 @@ jobs:
         working-directory: openwrt
         run: |
           make target/linux/prepare V=s
+
+      - name: Install OpenWrt toolchain
+        working-directory: openwrt
+        run: |
+          make tools/install -j2 V=s
+          make toolchain/install -j2 V=s
 
       - name: Compile kernel
         working-directory: openwrt
