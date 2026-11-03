@@ -1,6 +1,7 @@
 
 
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -62,6 +63,7 @@ jobs:
             KSRC="$KSRC" \
             ARCH=mips \
             CROSS_COMPILE="$CROSS_COMPILE" \
+            USER_EXTRA_CFLAGS="-DCONFIG_LITTLE_ENDIAN" \
             modules
 
       - name: Check driver
@@ -75,5 +77,6 @@ jobs:
           name: hg553-8188eu-driver
           path: driver/8188eu.ko
           if-no-files-found: error
+
 
 
