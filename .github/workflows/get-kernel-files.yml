@@ -40,12 +40,17 @@ jobs:
         run: |
           make target/linux/prepare V=s
 
+      - name: Compile kernel
+        working-directory: openwrt
+        run: |
+          make target/linux/compile V=s
+
       - name: Save kernel build files
         uses: actions/upload-artifact@v4
         with:
           name: hg553-kernel-build
           path: |
-            openwrt/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167/
+            openwrt/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/
             openwrt/staging_dir/target-mips_mips32_musl/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
