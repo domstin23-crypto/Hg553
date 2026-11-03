@@ -2,6 +2,7 @@
 
 
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -56,6 +57,13 @@ jobs:
           echo "Checking internal compiler..."
           find "$TOOLCHAIN_DIR" -name cc1 -print
 
+      - name: Check MIPS byte order
+        run: |
+          echo "=== Compiler byte order ==="
+          echo | "${CROSS_COMPILE}gcc" -dM -E - | grep -E 'BYTE_ORDER|ORDER_BIG_ENDIAN|ORDER_LITTLE_ENDIAN'
+          echo "=== Kernel endian configuration ==="
+          grep -E 'CONFIG_CPU_BIG_ENDIAN|CONFIG_CPU_LITTLE_ENDIAN' "$KSRC/.config" || true
+
       - name: Build driver
         run: |
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
@@ -63,7 +71,6 @@ jobs:
             KSRC="$KSRC" \
             ARCH=mips \
             CROSS_COMPILE="$CROSS_COMPILE" \
-            USER_EXTRA_CFLAGS="-DCONFIG_LITTLE_ENDIAN" \
             modules
 
       - name: Check driver
@@ -77,6 +84,7 @@ jobs:
           name: hg553-8188eu-driver
           path: driver/8188eu.ko
           if-no-files-found: error
+
 
 
 
