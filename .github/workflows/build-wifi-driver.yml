@@ -1,0 +1,29 @@
+
+name: Build HG553 WiFi driver
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download HG553 kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hg553-kernel-build
+          repository: domstin23-crypto/Hg553
+          run-id: 41713172297
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: kernel-artifact
+
+      - name: Inspect downloaded files
+        run: |
+          echo "Kernel files:"
+          find kernel-artifact -name Module.symvers
+          echo "Toolchains:"
+          find kernel-artifact -type f -name 'mips*-gcc'
