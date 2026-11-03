@@ -1,1 +1,32 @@
 
+name: Check HG553 kernel build files
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl zstd
+
+      - name: Download OpenWrt kernel debug archive
+        run: |
+          URL="https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/kernel-debug.tar.zst"
+          curl -fL "$URL" -o kernel-debug.tar.zst
+
+      - name: Inspect archive
+        run: |
+          zstd -dc kernel-debug.tar.zst | tar -tf - | tee archive-files.txt
+          echo "---- Matching kernel build files ----"
+          grep -Ei 'Module.symvers|\.config$|include/generated|scripts/mod' archive-files.txt || true
+
+      - name: Save inspection results
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg553-kernel-inspection
+          path: archive-files.txt
+
