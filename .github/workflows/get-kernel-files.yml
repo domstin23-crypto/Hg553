@@ -59,5 +59,7 @@ jobs:
           path: |
             openwrt/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/
             openwrt/staging_dir/target-mips_mips32_musl/
+            openwrt/staging_dir/toolchain-*/
+            openwrt/staging_dir/host/bin/
           if-no-files-found: error
           retention-days: 7
