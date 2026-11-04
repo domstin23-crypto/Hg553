@@ -92,6 +92,8 @@ jobs:
       - name: Restore executable permissions
         run: |
           chmod -R u+x "$TOOLCHAIN_DIR"
+          chmod -R u+x "$KSRC/scripts"
+          chmod +x "$KSRC/scripts/basic/fixdep"
           chmod +x "$KSRC/scripts/pahole-flags.sh"
 
       - name: Check compiler and kernel
