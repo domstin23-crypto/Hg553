@@ -3,6 +3,7 @@
 
 
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -35,6 +36,33 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/aircrack-ng/rtl8188eus.git driver
 
+      - name: Fix big-endian MIPS support
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("driver/include/rtw_byteorder.h")
+          s = p.read_text()
+
+          s = s.replace(
+              "#if __BYTE_ORDER == __BIG_ENDIAN",
+              "#if defined(__MIPSEB__) || (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)"
+          )
+
+          s = s.replace(
+              "#include <byteorder/big_endian.h>",
+              "#include <asm/byteorder.h>"
+          )
+
+          p.write_text(s)
+
+          print("Updated Realtek byte-order detection.")
+          print("Checking patched lines:")
+          for line in s.splitlines():
+              if "__MIPSEB__" in line or "asm/byteorder.h" in line:
+                  print(line)
+          PY
+
       - name: Configure build paths
         run: |
           echo "KSRC=$GITHUB_WORKSPACE/kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167" >> $GITHUB_ENV
@@ -48,21 +76,14 @@ jobs:
           chmod -R u+x "$TOOLCHAIN_DIR"
           chmod +x "$KSRC/scripts/pahole-flags.sh"
 
-      - name: Locate kernel files
-        run: |
-          echo "Searching for Module.symvers..."
-          find kernel-artifact -name Module.symvers -print
-          echo "Checking compiler..."
-          find kernel-artifact -name mips-openwrt-linux-musl-gcc -print
-          echo "Checking internal compiler..."
-          find "$TOOLCHAIN_DIR" -name cc1 -print
-
-      - name: Check MIPS byte order
+      - name: Check compiler and kernel
         run: |
           echo "=== Compiler byte order ==="
-          echo | "${CROSS_COMPILE}gcc" -dM -E - | grep -E 'BYTE_ORDER|ORDER_BIG_ENDIAN|ORDER_LITTLE_ENDIAN'
-          echo "=== Kernel endian configuration ==="
-          grep -E 'CONFIG_CPU_BIG_ENDIAN|CONFIG_CPU_LITTLE_ENDIAN' "$KSRC/.config" || true
+          echo | "${CROSS_COMPILE}gcc" -dM -E - | grep -E 'BYTE_ORDER|MIPSEB'
+          echo "=== Kernel symbol file ==="
+          find "$KSRC" -name Module.symvers -print
+          echo "=== Kernel byte-order header ==="
+          find "$KSRC" -path '*/asm/byteorder.h' -print
 
       - name: Build driver
         run: |
@@ -84,6 +105,7 @@ jobs:
           name: hg553-8188eu-driver
           path: driver/8188eu.ko
           if-no-files-found: error
+
 
 
 
