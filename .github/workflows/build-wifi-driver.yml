@@ -5,18 +5,14 @@
 
 
 name: Build HG553 WiFi driver
-
 on:
   workflow_dispatch:
-
 permissions:
   actions: read
   contents: read
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
       - name: Download HG553 kernel artifact
         uses: actions/download-artifact@v4
@@ -26,43 +22,41 @@ jobs:
           run-id: 41713172297
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: kernel-artifact
-
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y git make bc
-
       - name: Clone RTL8188EUS driver
         run: |
           git clone --depth 1 https://github.com/aircrack-ng/rtl8188eus.git driver
-
       - name: Fix big-endian MIPS support
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
+          import re
           p = Path("driver/include/rtw_byteorder.h")
           s = p.read_text()
-
-          s = s.replace(
-              "#if __BYTE_ORDER == __BIG_ENDIAN",
-              "#if defined(__MIPSEB__) || (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)"
+          s, count = re.subn(
+              r'#if\s+__BYTE_ORDER\s*==\s*__BIG_ENDIAN',
+              '#if defined(__MIPSEB__) || (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)',
+              s
           )
-
-          s = s.replace(
-              "#include <byteorder/big_endian.h>",
-              "#include <asm/byteorder.h>"
-          )
-
+          if count != 1:
+              raise SystemExit(
+                  f"Expected 1 endian test replacement, got {count}"
+              )
+          old = '#include <byteorder/big_endian.h>'
+          new = '#include <asm/byteorder.h>'
+          if old not in s:
+              raise SystemExit("Expected big-endian header include not found")
+          s = s.replace(old, new, 1)
           p.write_text(s)
-
-          print("Updated Realtek byte-order detection.")
-          print("Checking patched lines:")
+          print("Big-endian MIPS patch applied successfully.")
+          print("Patched lines:")
           for line in s.splitlines():
               if "__MIPSEB__" in line or "asm/byteorder.h" in line:
                   print(line)
           PY
-
       - name: Configure build paths
         run: |
           echo "KSRC=$GITHUB_WORKSPACE/kernel-artifact/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167" >> $GITHUB_ENV
@@ -70,21 +64,20 @@ jobs:
           echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl" >> $GITHUB_ENV
           echo "PATH=$GITHUB_WORKSPACE/kernel-artifact/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/bin:$PATH" >> $GITHUB_ENV
           echo "CROSS_COMPILE=mips-openwrt-linux-musl-" >> $GITHUB_ENV
-
       - name: Restore executable permissions
         run: |
           chmod -R u+x "$TOOLCHAIN_DIR"
           chmod +x "$KSRC/scripts/pahole-flags.sh"
-
       - name: Check compiler and kernel
         run: |
           echo "=== Compiler byte order ==="
           echo | "${CROSS_COMPILE}gcc" -dM -E - | grep -E 'BYTE_ORDER|MIPSEB'
           echo "=== Kernel symbol file ==="
-          find "$KSRC" -name Module.symvers -print
-          echo "=== Kernel byte-order header ==="
-          find "$KSRC" -path '*/asm/byteorder.h' -print
-
+          test -f "$KSRC/Module.symvers"
+          echo "$KSRC/Module.symvers"
+          echo "=== MIPS byte-order header ==="
+          test -f "$KSRC/arch/mips/include/uapi/asm/byteorder.h"
+          echo "$KSRC/arch/mips/include/uapi/asm/byteorder.h"
       - name: Build driver
         run: |
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
@@ -93,12 +86,11 @@ jobs:
             ARCH=mips \
             CROSS_COMPILE="$CROSS_COMPILE" \
             modules
-
       - name: Check driver
         run: |
           find driver -name '*.ko' -print
           test -f driver/8188eu.ko
-
+          file driver/8188eu.ko
       - name: Upload compiled driver
         uses: actions/upload-artifact@v4
         with:
