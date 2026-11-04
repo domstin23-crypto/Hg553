@@ -33,30 +33,35 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path("driver/include/rtw_byteorder.h")
           s = p.read_text()
-          marker = "#if !((defined CONFIG_LITTLE_ENDIAN) || (defined CONFIG_BIG_ENDIAN))"
-          if marker not in s:
-              raise SystemExit("Endian detection block not found")
-          detection = """#if defined(__MIPSEB__)
+          pattern = r'#if\s+!\s*\(\(defined\s+CONFIG_LITTLE_ENDIAN\)\s*\|\|\s*\(defined\s+CONFIG_BIG_ENDIAN\)\s*\).*?#endif'
+          replacement = """#if defined(__MIPSEB__)
           #define CONFIG_BIG_ENDIAN
           #elif defined(__MIPSEL__)
           #define CONFIG_LITTLE_ENDIAN
-          #endif
-          """
-          if "__MIPSEB__" not in s:
-              s = s.replace(marker, detection + marker, 1)
-          old = "#include <byteorder/big_endian.h>"
-          new = "#include <asm/byteorder.h>"
-          if old not in s:
-              raise SystemExit("Big-endian header include not found")
-          s = s.replace(old, new, 1)
+          #elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+          #define CONFIG_BIG_ENDIAN
+          #elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+          #define CONFIG_LITTLE_ENDIAN
+          #endif"""
+          s, count = re.subn(
+              pattern,
+              replacement,
+              s,
+              count=1,
+              flags=re.DOTALL
+          )
+          if count != 1:
+              raise SystemExit("Could not replace endian detection block")
+          s = s.replace(
+              "#include <byteorder/big_endian.h>",
+              "#include <asm/byteorder.h>"
+          )
           p.write_text(s)
-          print("MIPS endian patch applied successfully.")
-          print("Detected endian configuration:")
-          for line in s.splitlines():
-              if "__MIPSEB__" in line or "__MIPSEL__" in line:
-                  print(line)
+          print("Endian detection replaced successfully.")
+          print("MIPS big-endian support enabled.")
           PY
       - name: Configure build paths
         run: |
@@ -75,10 +80,8 @@ jobs:
           echo | "${CROSS_COMPILE}gcc" -dM -E - | grep -E 'BYTE_ORDER|MIPSEB'
           echo "=== Kernel symbol file ==="
           test -f "$KSRC/Module.symvers"
-          echo "$KSRC/Module.symvers"
           echo "=== MIPS byte-order header ==="
           test -f "$KSRC/arch/mips/include/uapi/asm/byteorder.h"
-          echo "$KSRC/arch/mips/include/uapi/asm/byteorder.h"
       - name: Build driver
         run: |
           sed -i 's/CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
