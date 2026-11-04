@@ -36,7 +36,26 @@ jobs:
       - name: Clone RTL8188EUS driver
         run: |
           git clone --depth 1 https://github.com/aircrack-ng/rtl8188eus.git driver
+      - name: Patch cfg80211 network namespace call
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
 
+          p = Path("driver/os_dep/linux/os_intfs.c")
+          s = p.read_text()
+
+          old = "dev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));"
+          new = """#ifdef CONFIG_IOCTL_CFG80211
+          \tdev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));
+          #endif"""
+
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f"Expected one wiphy namespace call, found {count}")
+
+          p.write_text(s.replace(old, new, 1))
+          print("cfg80211 patch applied.")
+          PY
       - name: Fix big-endian MIPS support
         run: |
           python3 - <<'PY'
