@@ -29,34 +29,40 @@ jobs:
           make defconfig
           echo "CONFIG_TARGET_bcm63xx=y" >> .config
           echo "CONFIG_TARGET_bcm63xx_smp=y" >> .config
-          echo "CONFIG_CFG80211_WEXT=y" >> .config
-          echo "CONFIG_WIRELESS_EXT=y" >> .config
           make defconfig
-          echo "=== Wireless configuration ==="
-          grep -E 'CONFIG_(CFG80211_WEXT|WIRELESS_EXT|WEXT_CORE)=' .config || true
+      - name: Enable Wireless Extensions
+        working-directory: openwrt
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("target/linux/generic/config-5.15")
+          s = p.read_text()
+          options = [
+              "WEXT_CORE",
+              "WEXT_PRIV",
+              "WEXT_PROC",
+              "WEXT_SPY",
+              "WIRELESS_EXT",
+          ]
+          for option in options:
+              disabled = f"# CONFIG_{option} is not set"
+              enabled = f"CONFIG_{option}=y"
+              if disabled in s:
+                  s = s.replace(disabled, enabled, 1)
+              elif enabled not in s:
+                  s += f"\n{enabled}\n"
+          p.write_text(s)
+          print("Wireless Extensions configuration:")
+          for option in options:
+              line = f"CONFIG_{option}=y"
+              if line not in s:
+                  raise SystemExit(f"Missing {line}")
+              print(line)
+          PY
       - name: Prepare kernel
         working-directory: openwrt
         run: |
           make target/linux/prepare V=s
-      - name: Enable Wireless Extensions in kernel
-        working-directory: openwrt
-        run: |
-          CONFIG_FILE=$(find build_dir/target-mips_mips32_musl/linux-bcm63xx_smp \
-            -name .config -path '*/linux-5.15.167/.config' | head -n 1)
-          if [ -z "$CONFIG_FILE" ]; then
-            echo "Kernel .config not found"
-            exit 1
-          fi
-          echo "Kernel config: $CONFIG_FILE"
-          ./scripts/config --file "$CONFIG_FILE" \
-            -e WIRELESS_EXT \
-            -e CFG80211_WEXT \
-            -e WEXT_CORE \
-            -e WEXT_PRIV \
-            -e WEXT_PROC \
-            -e WEXT_SPY
-          make target/linux/prepare V=s
-          grep -E 'CONFIG_(WIRELESS_EXT|CFG80211_WEXT|WEXT_CORE|WEXT_PRIV|WEXT_PROC|WEXT_SPY)=' "$CONFIG_FILE"
       - name: Install OpenWrt toolchain
         working-directory: openwrt
         run: |
