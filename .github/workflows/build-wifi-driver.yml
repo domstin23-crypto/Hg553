@@ -5,6 +5,7 @@
 
 
 
+
 name: Build HG553 WiFi driver
 
 on:
@@ -36,6 +37,7 @@ jobs:
       - name: Clone RTL8188EUS driver
         run: |
           git clone --depth 1 https://github.com/aircrack-ng/rtl8188eus.git driver
+
       - name: Patch cfg80211 network namespace call
         run: |
           python3 - <<'PY'
@@ -56,6 +58,33 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           print("cfg80211 patch applied.")
           PY
+
+      - name: Fix duplicate inline functions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("driver/include/ieee80211.h")
+          s = p.read_text()
+
+          names = [
+              "is_multicast_mac_addr",
+              "is_zero_mac_addr"
+          ]
+
+          for name in names:
+              old = "extern __inline int " + name
+              new = "static inline int " + name
+
+              if s.count(old) != 1:
+                  raise SystemExit(f"Expected one definition of {name}")
+
+              s = s.replace(old, new, 1)
+
+          p.write_text(s)
+          print("Both inline functions fixed.")
+          PY
+
       - name: Fix big-endian MIPS support
         run: |
           python3 - <<'PY'
@@ -148,6 +177,7 @@ jobs:
           name: hg553-8188eu-driver
           path: driver/8188eu.ko
           if-no-files-found: error
+
 
 
 
