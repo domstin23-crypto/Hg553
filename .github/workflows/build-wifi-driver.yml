@@ -33,28 +33,29 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path("driver/include/rtw_byteorder.h")
           s = p.read_text()
-          s, count = re.subn(
-              r'#if\s+__BYTE_ORDER\s*==\s*__BIG_ENDIAN',
-              '#if defined(__MIPSEB__) || (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)',
-              s
-          )
-          if count != 1:
-              raise SystemExit(
-                  f"Expected 1 endian test replacement, got {count}"
-              )
-          old = '#include <byteorder/big_endian.h>'
-          new = '#include <asm/byteorder.h>'
+          marker = "#if !((defined CONFIG_LITTLE_ENDIAN) || (defined CONFIG_BIG_ENDIAN))"
+          if marker not in s:
+              raise SystemExit("Endian detection block not found")
+          detection = """#if defined(__MIPSEB__)
+          #define CONFIG_BIG_ENDIAN
+          #elif defined(__MIPSEL__)
+          #define CONFIG_LITTLE_ENDIAN
+          #endif
+          """
+          if "__MIPSEB__" not in s:
+              s = s.replace(marker, detection + marker, 1)
+          old = "#include <byteorder/big_endian.h>"
+          new = "#include <asm/byteorder.h>"
           if old not in s:
-              raise SystemExit("Expected big-endian header include not found")
+              raise SystemExit("Big-endian header include not found")
           s = s.replace(old, new, 1)
           p.write_text(s)
-          print("Big-endian MIPS patch applied successfully.")
-          print("Patched lines:")
+          print("MIPS endian patch applied successfully.")
+          print("Detected endian configuration:")
           for line in s.splitlines():
-              if "__MIPSEB__" in line or "asm/byteorder.h" in line:
+              if "__MIPSEB__" in line or "__MIPSEL__" in line:
                   print(line)
           PY
       - name: Configure build paths
