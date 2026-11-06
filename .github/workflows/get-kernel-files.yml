@@ -1,6 +1,7 @@
 
 
 
+
 name: Prepare HG553 kernel build
 
 on:
@@ -75,69 +76,26 @@ jobs:
 
           KDIR="$PWD/build_dir/$KBUILD/linux-$KVER"
 
-          CROSS_GCC="$(find "$PWD"/staging_dir/toolchain-*/bin \
-            -name 'mips-openwrt-linux-musl-gcc' | head -n 1)"
-
+          test -f "$KDIR/.config"
           test -f "$KDIR/net/wireless/Kconfig"
-          test -n "$CROSS_GCC"
-
-          CROSS="${CROSS_GCC%gcc}"
-
-          echo "Kernel directory: $KDIR"
-          echo "Cross compiler: $CROSS"
-
-          python3 - "$KDIR/net/wireless/Kconfig" <<'PY'
-          from pathlib import Path
-          import re
-          import sys
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          pattern = r'(?ms)^config WIRELESS_EXT\n(.*?)(?=^config |\Z)'
-          m = re.search(pattern, s)
-
-          if not m:
-              raise SystemExit("ERROR: WIRELESS_EXT was not found")
-
-          block = m.group(0)
-
-          if not re.search(r'(?m)^\s*default\s+y\s*$', block):
-              bool_match = re.search(r'(?m)^(\s*)bool(?:\s.*)?$', block)
-
-              if not bool_match:
-                  raise SystemExit("ERROR: WIRELESS_EXT bool entry was not found")
-
-              insert_at = m.start() + bool_match.end()
-              s = s[:insert_at] + "\n\tdefault y" + s[insert_at:]
-              p.write_text(s)
-
-          print("WIRELESS_EXT Kconfig entry:")
-          updated = p.read_text()
-          m = re.search(pattern, updated)
-          print(m.group(0))
-
-          if not re.search(r'(?m)^\s*default\s+y\s*$', m.group(0)):
-              raise SystemExit("ERROR: Could not set WIRELESS_EXT default y")
-          PY
 
           cat >> "$KDIR/.config" <<'EOF'
-          CONFIG_WIRELESS=y
-          CONFIG_WIRELESS_EXT=y
+          CONFIG_CFG80211=y
+          CONFIG_CFG80211_WEXT=y
           EOF
 
-          make -C "$KDIR" ARCH=mips CROSS_COMPILE="$CROSS" olddefconfig
+          make -C "$KDIR" ARCH=mips olddefconfig
 
-          echo "=== Wireless kernel configuration ==="
+          echo "=== Wireless configuration ==="
 
-          grep -E '^CONFIG_(WIRELESS|WIRELESS_EXT|WEXT_CORE|WEXT_PROC)=' \
+          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT|WEXT_CORE)=' \
             "$KDIR/.config" || true
 
-          grep -qx 'CONFIG_WIRELESS=y' "$KDIR/.config"
-          grep -qx 'CONFIG_WIRELESS_EXT=y' "$KDIR/.config"
+          grep -qx 'CONFIG_CFG80211=y' "$KDIR/.config"
+          grep -qx 'CONFIG_CFG80211_WEXT=y' "$KDIR/.config"
           grep -qx 'CONFIG_WEXT_CORE=y' "$KDIR/.config"
 
-          echo "SUCCESS: Wireless Extensions enabled."
+          echo "SUCCESS: cfg80211 WEXT compatibility enabled."
 
       - name: Compile kernel
         working-directory: openwrt
@@ -152,14 +110,14 @@ jobs:
 
           echo "=== Final wireless configuration ==="
 
-          grep -E '^CONFIG_(WIRELESS|WIRELESS_EXT|WEXT_CORE|WEXT_PROC)=' \
+          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT|WEXT_CORE)=' \
             "$KDIR/.config" || true
 
-          grep -qx 'CONFIG_WIRELESS=y' "$KDIR/.config"
-          grep -qx 'CONFIG_WIRELESS_EXT=y' "$KDIR/.config"
+          grep -qx 'CONFIG_CFG80211=y' "$KDIR/.config"
+          grep -qx 'CONFIG_CFG80211_WEXT=y' "$KDIR/.config"
           grep -qx 'CONFIG_WEXT_CORE=y' "$KDIR/.config"
 
-          echo "SUCCESS: Configuration survived compilation."
+          echo "SUCCESS: Wireless configuration survived compilation."
 
       - name: Verify wireless_send_event
         working-directory: openwrt
@@ -194,5 +152,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+0
 
 
