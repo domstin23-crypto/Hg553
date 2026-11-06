@@ -1,5 +1,6 @@
 
 
+
 name: Prepare HG553 kernel build
 
 on:
@@ -9,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  KVER: 5.15.167
+  KVER: "5.15.167"
   KBUILD: target-mips_mips32_musl/linux-bcm63xx_smp
 
 jobs:
@@ -47,8 +48,12 @@ jobs:
           CONFIG_TARGET_bcm63xx=y
           CONFIG_TARGET_bcm63xx_smp=y
           EOF
+
           make defconfig
+
           grep -q '^CONFIG_TARGET_bcm63xx_smp=y' .config
+
+          echo "HG553 target configuration:"
           grep -E '^CONFIG_TARGET_(BOARD|SUBTARGET|ARCH)' .config || true
 
       - name: Prepare kernel
@@ -63,22 +68,59 @@ jobs:
           make tools/install -j"$(nproc)" || make tools/install -j1 V=s
           make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
 
-      - name: Enable Wireless Extensions (fail fast)
+      - name: Enable Wireless Extensions
         working-directory: openwrt
         run: |
+          set -eux
+
           KDIR="$PWD/build_dir/$KBUILD/linux-$KVER"
-          CROSS_GCC="$(find "$PWD"/staging_dir/toolchain-*/bin -name 'mips-openwrt-linux-musl-gcc' | head -n1)"
+
+          CROSS_GCC="$(find "$PWD"/staging_dir/toolchain-*/bin \
+            -name 'mips-openwrt-linux-musl-gcc' | head -n 1)"
+
+          test -f "$KDIR/net/wireless/Kconfig"
+          test -n "$CROSS_GCC"
+
           CROSS="${CROSS_GCC%gcc}"
-          echo "Cross prefix: $CROSS"
 
-          # WIRELESS_EXT has no prompt, so kconfig ignores it unless
-          # something selects it. Give it a prompt and default y.
-          sed -i '/^config WIRELESS_EXT$/,/^$/ s/^\tbool$/\tbool "Wireless extensions"\n\tdefault y/' \
-            "$KDIR/net/wireless/Kconfig"
-          sed -n '/^config WIRELESS_EXT$/,/^$/p' "$KDIR/net/wireless/Kconfig"
-          grep -A3 '^config WIRELESS_EXT$' "$KDIR/net/wireless/Kconfig" | grep -q 'default y'
+          echo "Kernel directory: $KDIR"
+          echo "Cross compiler: $CROSS"
 
-          # net/wireless/Kconfig is only read when CONFIG_WIRELESS=y
+          python3 - "$KDIR/net/wireless/Kconfig" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          p = Path(sys.argv[1])
+          s = p.read_text()
+
+          pattern = r'(?ms)^config WIRELESS_EXT\n(.*?)(?=^config |\Z)'
+          m = re.search(pattern, s)
+
+          if not m:
+              raise SystemExit("ERROR: WIRELESS_EXT was not found")
+
+          block = m.group(0)
+
+          if not re.search(r'(?m)^\s*default\s+y\s*$', block):
+              bool_match = re.search(r'(?m)^(\s*)bool(?:\s.*)?$', block)
+
+              if not bool_match:
+                  raise SystemExit("ERROR: WIRELESS_EXT bool entry was not found")
+
+              insert_at = m.start() + bool_match.end()
+              s = s[:insert_at] + "\n\tdefault y" + s[insert_at:]
+              p.write_text(s)
+
+          print("WIRELESS_EXT Kconfig entry:")
+          updated = p.read_text()
+          m = re.search(pattern, updated)
+          print(m.group(0))
+
+          if not re.search(r'(?m)^\s*default\s+y\s*$', m.group(0)):
+              raise SystemExit("ERROR: Could not set WIRELESS_EXT default y")
+          PY
+
           cat >> "$KDIR/.config" <<'EOF'
           CONFIG_WIRELESS=y
           CONFIG_WIRELESS_EXT=y
@@ -86,36 +128,51 @@ jobs:
 
           make -C "$KDIR" ARCH=mips CROSS_COMPILE="$CROSS" olddefconfig
 
-          echo "=== Resulting kernel options ==="
-          grep -E '^CONFIG_(WIRELESS|WIRELESS_EXT|WEXT_CORE|WEXT_PROC)=' "$KDIR/.config" || true
+          echo "=== Wireless kernel configuration ==="
+
+          grep -E '^CONFIG_(WIRELESS|WIRELESS_EXT|WEXT_CORE|WEXT_PROC)=' \
+            "$KDIR/.config" || true
 
           grep -qx 'CONFIG_WIRELESS=y' "$KDIR/.config"
           grep -qx 'CONFIG_WIRELESS_EXT=y' "$KDIR/.config"
           grep -qx 'CONFIG_WEXT_CORE=y' "$KDIR/.config"
-          echo "Wireless Extensions enabled in kernel .config."
+
+          echo "SUCCESS: Wireless Extensions enabled."
 
       - name: Compile kernel
         working-directory: openwrt
         run: |
-          make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
+          make target/linux/compile -j"$(nproc)" || \
+            make target/linux/compile -j1 V=s
 
-      - name: Verify config survived the build
+      - name: Verify wireless configuration
         working-directory: openwrt
         run: |
           KDIR="build_dir/$KBUILD/linux-$KVER"
+
+          echo "=== Final wireless configuration ==="
+
+          grep -E '^CONFIG_(WIRELESS|WIRELESS_EXT|WEXT_CORE|WEXT_PROC)=' \
+            "$KDIR/.config" || true
+
+          grep -qx 'CONFIG_WIRELESS=y' "$KDIR/.config"
           grep -qx 'CONFIG_WIRELESS_EXT=y' "$KDIR/.config"
           grep -qx 'CONFIG_WEXT_CORE=y' "$KDIR/.config"
-          echo "Config verified after compile."
+
+          echo "SUCCESS: Configuration survived compilation."
 
       - name: Verify wireless_send_event
         working-directory: openwrt
         run: |
           KDIR="build_dir/$KBUILD/linux-$KVER"
+
           if ! grep -qw wireless_send_event "$KDIR/Module.symvers"; then
-            echo "ERROR: wireless_send_event is missing from Module.symvers."
+            echo "ERROR: wireless_send_event is missing."
             exit 1
           fi
+
           grep -w wireless_send_event "$KDIR/Module.symvers"
+
           echo "SUCCESS: wireless_send_event is exported."
 
       - name: Package kernel build files
@@ -126,6 +183,7 @@ jobs:
             staging_dir/target-mips_mips32_musl \
             staging_dir/toolchain-* \
             staging_dir/host/bin
+
           ls -lh ../hg553-kernel-build.tar.zst
 
       - name: Save kernel build files
@@ -136,4 +194,5 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
 
