@@ -1,4 +1,5 @@
 
+
 name: Build HG553 TL-WN722N V2 Driver
 
 on:
@@ -17,13 +18,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            git \
-            wget \
-            xz-utils \
-            python3 \
-            kmod \
-            binutils
+            build-essential git wget xz-utils \
+            python3 binutils kmod
 
       - name: Download and verify OpenWrt SDK
         run: |
@@ -35,12 +31,9 @@ jobs:
             | sha256sum -c -
 
           mkdir sdk
+          tar -xJf sdk.tar.xz --strip-components=1 -C sdk
 
-          tar -xJf sdk.tar.xz \
-            --strip-components=1 \
-            -C sdk
-
-      - name: Download matching HG553 configuration
+      - name: Download matching configuration
         run: |
           wget -q \
             https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo \
@@ -54,25 +47,17 @@ jobs:
           import re
 
           data = Path("config.buildinfo").read_text()
-
           entries = re.findall(
               r'(?:# )?CONFIG_[A-Za-z0-9_]+(?:=[^\s]+| is not set)',
               data
           )
 
           if not entries:
-              raise SystemExit("ERROR: No valid CONFIG entries found")
+              raise SystemExit("No valid configuration entries found")
 
-          Path("sdk/.config").write_text(
-              "\n".join(entries) + "\n"
-          )
-
-          print("Extracted", len(entries), "configuration entries")
+          Path("sdk/.config").write_text("\n".join(entries) + "\n")
+          print("Configuration entries:", len(entries))
           PY
-
-          test -s sdk/.config
-
-          echo "Configuration file prepared."
 
       - name: Download Linux 5.15.167 driver source
         run: |
@@ -87,153 +72,127 @@ jobs:
           git -C linux-src sparse-checkout set \
             drivers/staging/r8188eu
 
-          test -f linux-src/drivers/staging/r8188eu/Makefile
-          test -f linux-src/drivers/staging/r8188eu/os_dep/usb_intf.c
+          DRIVER="linux-src/drivers/staging/r8188eu"
+
+          test -f "$DRIVER/Makefile"
+          test -f "$DRIVER/os_dep/usb_intf.c"
 
           grep -qi '0x2357, 0x010c' \
-            linux-src/drivers/staging/r8188eu/os_dep/usb_intf.c
+            "$DRIVER/os_dep/usb_intf.c"
 
           echo "TL-WN722N V2 USB ID confirmed."
 
-      - name: Create RTL8188EU package
-        run: |
-          mkdir -p sdk/package/kernel/r8188eu
-
-          cat > sdk/package/kernel/r8188eu/Makefile <<'EOF'
-          include $(TOPDIR)/rules.mk
-          include $(INCLUDE_DIR)/kernel.mk
-          include $(INCLUDE_DIR)/package.mk
-
-          PKG_NAME:=r8188eu
-          PKG_RELEASE:=1
-          PKG_LICENSE:=GPL-2.0
-
-          PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_RELEASE)
-
-          R8188EU_SOURCE_DIR:=$(TOPDIR)/../linux-src/drivers/staging/r8188eu
-
-          define KernelPackage/r8188eu
-            SUBMENU:=Wireless Drivers
-            TITLE:=Realtek RTL8188EU USB WiFi driver
-            DEPENDS:=+kmod-usb-core +kmod-cfg80211 +rtl8188eu-firmware
-            FILES:=$(PKG_BUILD_DIR)/r8188eu.ko
-            AUTOLOAD:=$(call AutoProbe,r8188eu)
-          endef
-
-          define KernelPackage/r8188eu/description
-            Linux 5.15 driver for TP-Link TL-WN722N V2.
-          endef
-
-          define Build/Prepare
-            $(INSTALL_DIR) $(PKG_BUILD_DIR)
-            $(CP) $(R8188EU_SOURCE_DIR)/* $(PKG_BUILD_DIR)/
-          endef
-
-          define Build/Compile
-            $(MAKE) -C $(LINUX_DIR) \
-              $(KERNEL_MAKE_FLAGS) \
-              M="$(PKG_BUILD_DIR)" \
-              CONFIG_R8188EU=m \
-              modules
-          endef
-
-          $(eval $(call KernelPackage,r8188eu))
-          EOF
-
-      - name: Configure OpenWrt SDK
-        working-directory: sdk
+      - name: Check HG553 kernel build environment
         run: |
           set -eux
 
-          make package/symlinks
-
-          echo 'CONFIG_PACKAGE_kmod-r8188eu=m' >> .config
-
-          make defconfig
-
-          grep -qx 'CONFIG_PACKAGE_kmod-r8188eu=m' .config
-
-          echo "SDK configuration completed."
-
-      - name: Check kernel build files
-        working-directory: sdk
-        run: |
-          set -eux
-
-          KDIR="build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167"
+          KDIR="sdk/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167"
 
           test -f "$KDIR/Makefile"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
+          test -f "$KDIR/.config"
 
-          grep -E 'CONFIG_CFG80211=|CONFIG_USB=' \
-            "$KDIR/.config" || true
+          CC="$(find sdk/staging_dir -type f \
+            -name 'mips-openwrt-linux-musl-gcc' \
+            -print -quit)"
 
-          echo "Kernel build files found."
+          test -n "$CC"
+          test -x "$CC"
 
-      - name: Compile RTL8188EU
-        working-directory: sdk
+          echo "Kernel directory and cross compiler found."
+
+      - name: Compile RTL8188EU directly
         run: |
           set -eux
 
-          make package/kernel/r8188eu/compile \
-            -j1 V=s
+          KDIR="$PWD/sdk/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167"
+          DRIVER="$PWD/linux-src/drivers/staging/r8188eu"
 
-      - name: Verify driver module
-        working-directory: sdk
+          CC="$(find "$PWD/sdk/staging_dir" -type f \
+            -name 'mips-openwrt-linux-musl-gcc' \
+            -print -quit)"
+
+          CROSS_COMPILE="${CC%gcc}"
+
+          make -C "$KDIR" \
+            M="$DRIVER" \
+            ARCH=mips \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            CONFIG_R8188EU=m \
+            modules V=1
+
+          test -f "$DRIVER/r8188eu.ko"
+
+          mkdir -p output
+          cp "$DRIVER/r8188eu.ko" output/
+
+      - name: Verify module and adapter support
         run: |
           set -eux
 
-          KO="$(find build_dir -type f -name r8188eu.ko | head -n 1)"
+          KO="output/r8188eu.ko"
 
-          test -n "$KO"
-          test -f "$KO"
+          modinfo "$KO"
 
-          echo "Checking USB device support"
+          modinfo -F alias "$KO" | tee output/aliases.txt
+          grep -qi 'usb:v2357p010C' output/aliases.txt
 
-          modinfo -F alias "$KO" | tee aliases.txt
+          modinfo -F firmware "$KO" | tee output/firmware.txt
+          grep -Fq 'rtlwifi/rtl8188eufw.bin' output/firmware.txt
 
-          grep -qi 'usb:v2357p010C' aliases.txt
+          modinfo -F vermagic "$KO" | tee output/vermagic.txt
+          grep -q '^5.15.167 ' output/vermagic.txt
 
-          echo "Checking firmware"
+          echo "Driver checks passed."
 
-          modinfo -F firmware "$KO" | tee firmware.txt
-
-          grep -Fq 'rtlwifi/rtl8188eufw.bin' firmware.txt
-
-          mkdir -p ../output
-
-          cp "$KO" ../output/r8188eu.ko
-
-      - name: Verify package and kernel ABI
-        working-directory: sdk
+      - name: Create OpenWrt installation package
         run: |
           set -eux
 
-          IPK="$(find bin -type f -name 'kmod-r8188eu_*.ipk' | head -n 1)"
+          PKG="package-root"
+          mkdir -p "$PKG/CONTROL"
+          mkdir -p "$PKG/lib/modules/5.15.167"
 
-          test -n "$IPK"
-          test -f "$IPK"
+          cp output/r8188eu.ko \
+            "$PKG/lib/modules/5.15.167/"
 
-          mkdir -p ../output/control
+          cat > "$PKG/CONTROL/control" <<'EOF'
+          Package: kmod-r8188eu
+          Version: 5.15.167-1
+          Depends: kernel (= 5.15.167-1-f43cfd6bab68f84c8aed9cf42bde33e6), kmod-usb-core, kmod-cfg80211, rtl8188eu-firmware
+          Architecture: mips_mips32
+          Section: kernel
+          Priority: optional
+          Maintainer: OpenWrt driver build
+          Description: RTL8188EU USB WiFi driver for TP-Link TL-WN722N V2
+          EOF
 
-          ar p "$IPK" control.tar.gz \
-            | tar -xz -C ../output/control
+          mkdir -p output/ipk
 
-          cat ../output/control/control
+          tar --numeric-owner --owner=0 --group=0 \
+            -czf output/ipk/control.tar.gz \
+            -C "$PKG/CONTROL" .
 
-          grep -Fq \
-            'kernel (= 5.15.167-1-f43cfd6bab68f84c8aed9cf42bde33e6)' \
-            ../output/control/control
+          tar --numeric-owner --owner=0 --group=0 \
+            -czf output/ipk/data.tar.gz \
+            -C "$PKG" lib
 
-          cp "$IPK" ../output/
+          echo "2.0" > output/ipk/debian-binary
 
-          echo "Kernel ABI verification passed."
+          cd output/ipk
+          ar r kmod-r8188eu_5.15.167-1_mips_mips32.ipk \
+            debian-binary control.tar.gz data.tar.gz
 
-      - name: Upload driver package
+          cd ../..
+
+          ar t output/ipk/kmod-r8188eu_5.15.167-1_mips_mips32.ipk
+
+      - name: Upload verified driver
         uses: actions/upload-artifact@v4
         with:
           name: HG553-WN722N-V2-r8188eu
           path: output/
           if-no-files-found: error
           retention-days: 14
+
