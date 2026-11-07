@@ -3,6 +3,7 @@
 
 
 
+
 name: Prepare HG553 kernel build
 
 on:
@@ -60,6 +61,7 @@ jobs:
 
       - name: Configure kernel wireless support
         working-directory: openwrt
+        shell: bash
         run: |
           set -eux
 
@@ -68,19 +70,21 @@ jobs:
           test -f "$CONFIG_FILE"
 
           sed -i -E \
-            '/^(# )?CONFIG_(CFG80211|CFG80211_WEXT|WEXT_CORE)(=| is not set)/d' \
+            '/^(# )?CONFIG_(CFG80211|CFG80211_WEXT|WEXT_CORE|WIRELESS_EXT)(=| is not set)/d' \
             "$CONFIG_FILE"
 
           cat >> "$CONFIG_FILE" <<'EOF'
           CONFIG_CFG80211=y
           CONFIG_CFG80211_WEXT=y
+          CONFIG_WIRELESS_EXT=y
           EOF
 
           echo "=== Requested wireless settings ==="
-          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT)=' "$CONFIG_FILE"
+          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT|WIRELESS_EXT)=' "$CONFIG_FILE"
 
       - name: Prepare kernel
         working-directory: openwrt
+        shell: bash
         run: |
           set -eux
 
@@ -93,18 +97,24 @@ jobs:
 
       - name: Install OpenWrt toolchain
         working-directory: openwrt
+        shell: bash
         run: |
+          set -eux
+
           make tools/install -j"$(nproc)" || make tools/install -j1 V=s
           make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
 
       - name: Compile kernel
         working-directory: openwrt
+        shell: bash
         run: |
-          make target/linux/compile -j"$(nproc)" || \
-            make target/linux/compile -j1 V=s
+          set -eux
+
+          yes "" | make target/linux/compile -j1 V=s
 
       - name: Verify wireless configuration
         working-directory: openwrt
+        shell: bash
         run: |
           set -eux
 
@@ -112,28 +122,32 @@ jobs:
 
           echo "=== Final wireless configuration ==="
 
-          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT|WEXT_CORE)=' \
+          grep -E '^CONFIG_(CFG80211|CFG80211_WEXT|WIRELESS_EXT|WEXT_CORE)=' \
             "$KDIR/.config" || true
 
           grep -qx 'CONFIG_CFG80211=y' "$KDIR/.config"
           grep -qx 'CONFIG_CFG80211_WEXT=y' "$KDIR/.config"
+          grep -qx 'CONFIG_WIRELESS_EXT=y' "$KDIR/.config"
           grep -qx 'CONFIG_WEXT_CORE=y' "$KDIR/.config"
 
           echo "SUCCESS: wireless configuration enabled."
 
       - name: Verify wireless_send_event
         working-directory: openwrt
+        shell: bash
         run: |
           set -eux
 
           KDIR="build_dir/$KBUILD/linux-$KVER"
 
-          grep -w wireless_send_event "$KDIR/Module.symvers"
+          test -f "$KDIR/Module.symvers"
+          grep -w 'wireless_send_event' "$KDIR/Module.symvers"
 
           echo "SUCCESS: wireless_send_event is exported."
 
       - name: Package kernel build files
         working-directory: openwrt
+        shell: bash
         run: |
           set -eux
 
@@ -153,6 +167,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
 
 
 
