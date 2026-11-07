@@ -17,8 +17,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential git wget xz-utils \
-            python3 kmod
+            build-essential \
+            git \
+            wget \
+            xz-utils \
+            python3 \
+            kmod \
+            binutils
 
       - name: Download and verify OpenWrt SDK
         run: |
@@ -35,7 +40,7 @@ jobs:
             --strip-components=1 \
             -C sdk
 
-      - name: Download matching HG553 build configuration
+      - name: Download matching HG553 configuration
         run: |
           wget -q \
             https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo \
@@ -48,18 +53,28 @@ jobs:
           from pathlib import Path
           import re
 
-          data = Path("config.buildinfo").read_text().strip()
+          data = Path("config.buildinfo").read_text()
 
-          data = re.sub(
-              r'\s+(?=(?:# )?CONFIG_[A-Za-z0-9_]+(?:=| is not set))',
-              '\n',
+          entries = re.findall(
+              r'(?:# )?CONFIG_[A-Za-z0-9_]+(?:=[^\s]+| is not set)',
               data
           )
 
-          Path("sdk/.config").write_text(data + "\n")
+          if not entries:
+              raise SystemExit("ERROR: No valid CONFIG entries found")
+
+          Path("sdk/.config").write_text(
+              "\n".join(entries) + "\n"
+          )
+
+          print("Extracted", len(entries), "configuration entries")
           PY
 
-      - name: Download Linux 5.15.167 RTL8188EU source
+          test -s sdk/.config
+
+          echo "Configuration file prepared."
+
+      - name: Download Linux 5.15.167 driver source
         run: |
           git clone \
             --depth 1 \
@@ -78,9 +93,9 @@ jobs:
           grep -qi '0x2357, 0x010c' \
             linux-src/drivers/staging/r8188eu/os_dep/usb_intf.c
 
-          echo "Confirmed TL-WN722N V2 USB ID."
+          echo "TL-WN722N V2 USB ID confirmed."
 
-      - name: Create OpenWrt kernel module package
+      - name: Create RTL8188EU package
         run: |
           mkdir -p sdk/package/kernel/r8188eu
 
@@ -106,7 +121,7 @@ jobs:
           endef
 
           define KernelPackage/r8188eu/description
-            Linux 5.15 RTL8188EU driver for TP-Link TL-WN722N V2.
+            Linux 5.15 driver for TP-Link TL-WN722N V2.
           endef
 
           define Build/Prepare
@@ -125,9 +140,11 @@ jobs:
           $(eval $(call KernelPackage,r8188eu))
           EOF
 
-      - name: Configure SDK package
+      - name: Configure OpenWrt SDK
         working-directory: sdk
         run: |
+          set -eux
+
           make package/symlinks
 
           echo 'CONFIG_PACKAGE_kmod-r8188eu=m' >> .config
@@ -136,18 +153,25 @@ jobs:
 
           grep -qx 'CONFIG_PACKAGE_kmod-r8188eu=m' .config
 
-      - name: Check exact HG553 kernel build directory
+          echo "SDK configuration completed."
+
+      - name: Check kernel build files
         working-directory: sdk
         run: |
+          set -eux
+
           KDIR="build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167"
 
           test -f "$KDIR/Makefile"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
 
-          echo "Kernel build directory verified."
+          grep -E 'CONFIG_CFG80211=|CONFIG_USB=' \
+            "$KDIR/.config" || true
 
-      - name: Compile r8188eu
+          echo "Kernel build files found."
+
+      - name: Compile RTL8188EU
         working-directory: sdk
         run: |
           set -eux
@@ -155,7 +179,7 @@ jobs:
           make package/kernel/r8188eu/compile \
             -j1 V=s
 
-      - name: Verify compiled module
+      - name: Verify driver module
         working-directory: sdk
         run: |
           set -eux
@@ -165,12 +189,14 @@ jobs:
           test -n "$KO"
           test -f "$KO"
 
-          echo "=== USB aliases ==="
+          echo "Checking USB device support"
+
           modinfo -F alias "$KO" | tee aliases.txt
 
           grep -qi 'usb:v2357p010C' aliases.txt
 
-          echo "=== Required firmware ==="
+          echo "Checking firmware"
+
           modinfo -F firmware "$KO" | tee firmware.txt
 
           grep -Fq 'rtlwifi/rtl8188eufw.bin' firmware.txt
@@ -179,7 +205,7 @@ jobs:
 
           cp "$KO" ../output/r8188eu.ko
 
-      - name: Verify kernel ABI compatibility
+      - name: Verify package and kernel ABI
         working-directory: sdk
         run: |
           set -eux
@@ -202,7 +228,7 @@ jobs:
 
           cp "$IPK" ../output/
 
-          echo "Kernel ABI matches the expected HG553 version."
+          echo "Kernel ABI verification passed."
 
       - name: Upload driver package
         uses: actions/upload-artifact@v4
