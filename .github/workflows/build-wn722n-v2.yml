@@ -2,6 +2,10 @@ name: Build HG553 TL-WN722N V2/V3/V4 monitor driver
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-wn722n-v2.yml'
 
 permissions:
   contents: read
