@@ -35,6 +35,11 @@ jobs:
           wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O openwrt/.config
           echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  openwrt/.config" | sha256sum -c -
           make -C openwrt defconfig
+          TOOLCHAIN_BIN="$(dirname "$(find "$PWD/sdk/staging_dir" -name 'mips-openwrt-linux-musl-gcc' -print -quit)")"
+          test -d "$TOOLCHAIN_BIN"
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          export PATH="$TOOLCHAIN_BIN:$PATH"
+          command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
           KDIR="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -printf '%h\n' -quit)"
           test -n "$KDIR"
@@ -54,7 +59,7 @@ jobs:
       - name: Compile for HG553 kernel
         run: |
           set -eux
-          CC="$(find "$PWD/sdk/staging_dir" -type f -name 'mips-openwrt-linux-musl-gcc' -print -quit)"
+          CC="$(command -v mips-openwrt-linux-musl-gcc)"
           test -n "$CC"
           test -x "$CC"
           CROSS_COMPILE="${CC%gcc}"
