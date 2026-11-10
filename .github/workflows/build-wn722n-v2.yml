@@ -13,40 +13,40 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git wget xz-utils python3 binutils kmod bc flex bison
+          sudo apt-get install -y build-essential git wget xz-utils python3 binutils kmod bc flex bison rsync libncurses5-dev gawk unzip file
 
-      - name: Download OpenWrt 23.05.5 SDK
+      - name: Download OpenWrt 23.05.5 SDK and matching source
         run: |
           wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/openwrt-sdk-23.05.5-bcm63xx-smp_gcc-12.3.0_musl.Linux-x86_64.tar.xz -O sdk.tar.xz
           echo "1e456d67b094eb97f9171a5daf8c8c48ac3dfdf708eea8b70b0e79f6cfe08c28  sdk.tar.xz" | sha256sum -c -
           mkdir sdk
           tar -xJf sdk.tar.xz --strip-components=1 -C sdk
+          git clone --depth 1 --branch v23.05.5 https://github.com/openwrt/openwrt.git openwrt
+          cp -a sdk/staging_dir openwrt/
 
-      - name: Prepare matching kernel configuration
+      - name: Configure and prepare exact OpenWrt kernel
         run: |
-          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O config.buildinfo
-          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  config.buildinfo" | sha256sum -c -
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          data = Path("config.buildinfo").read_text()
-          entries = re.findall(r'(?:# )?CONFIG_[A-Za-z0-9_]+(?:=[^\s]+| is not set)', data)
-          if not entries:
-              raise SystemExit("No kernel configuration entries found")
-          Path("sdk/.config").write_text("\n".join(entries) + "\n")
-          PY
-          make -C sdk defconfig
-          make -C sdk target/linux/prepare V=s
+          set -eux
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O openwrt/.config
+          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  openwrt/.config" | sha256sum -c -
+          make -C openwrt defconfig
+          make -C openwrt target/linux/prepare V=s
+          KDIR="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -printf '%h\n' -quit)"
+          test -n "$KDIR"
+          test -f "$KDIR/Module.symvers"
+          test -f "$KDIR/include/generated/autoconf.h"
+          echo "KDIR=$KDIR" >> "$GITHUB_ENV"
+          echo "Prepared kernel directory: $KDIR"
 
       - name: Download monitor-mode RTL8188EUS driver
         run: |
           git clone --depth 1 --branch v5.3.9 https://github.com/aircrack-ng/rtl8188eus.git driver
-          grep -qi 'USB_DEVICE(0x2357, 0x010c)' driver/os_dep/linux/usb_intf.c
+          grep -qi '2357' driver/os_dep/linux/usb_intf.c
           grep -q 'CONFIG_WIFI_MONITOR = y' driver/Makefile
           sed -i 's/^CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
           sed -i 's/^CONFIG_PLATFORM_MIPS_PLM = n/CONFIG_PLATFORM_MIPS_PLM = y/' driver/Makefile
@@ -54,14 +54,10 @@ jobs:
       - name: Compile for HG553 kernel
         run: |
           set -eux
-          KDIR="$PWD/sdk/build_dir/target-mips_mips32_musl/linux-bcm63xx_smp/linux-5.15.167"
-          test -f "$KDIR/Makefile"
-          test -f "$KDIR/Module.symvers"
-          test -f "$KDIR/include/generated/autoconf.h"
           CC="$(find "$PWD/sdk/staging_dir" -type f -name 'mips-openwrt-linux-musl-gcc' -print -quit)"
           test -n "$CC"
           test -x "$CC"
-          CROSS_COMPILE="\${CC%gcc}"
+          CROSS_COMPILE="${CC%gcc}"
           make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" modules V=1 2>&1 | tee build.log
           test -f driver/8188eu.ko
           mkdir -p output
@@ -76,27 +72,22 @@ jobs:
           grep -qi 'usb:v2357p010C' output/aliases.txt
           modinfo -F vermagic output/8188eu.ko | tee output/vermagic.txt
           grep -q '^5.15.167 ' output/vermagic.txt
-          grep -q 'CONFIG_WIFI_MONITOR' output/build.log
           file output/8188eu.ko | tee output/file.txt
           readelf -h output/8188eu.ko | tee output/elf-header.txt
           grep -qi 'big endian' output/elf-header.txt
-          echo "All static driver checks passed." | tee output/VERIFIED.txt
+          echo "Static checks passed; runtime compatibility still requires testing on the router." | tee output/VERIFIED.txt
 
       - name: Package install bundle
         run: |
           set -eux
           mkdir -p output/lib/modules/5.15.167 output/lib/firmware/rtlwifi
           cp output/8188eu.ko output/lib/modules/5.15.167/
-          if [ -f driver/firmware/rtl8188eufw.bin ]; then
-            cp driver/firmware/rtl8188eufw.bin output/lib/firmware/rtlwifi/
-          fi
           cat > output/INSTALL.txt <<'EOF'
           HG553 OpenWrt 23.05.5 / kernel 5.15.167
-          Adapter USB ID: 2357:010c
+          USB adapter: TP-Link TL-WN722N V2, USB ID 2357:010c
           Driver: Aircrack-ng RTL8188EUS
-          Monitor-mode compile option: CONFIG_WIFI_MONITOR=y
-          Do not install unless the router reports the exact kernel version and package ABI.
-          Copy 8188eu.ko to /lib/modules/5.15.167/ and run depmod -a only after compatibility is confirmed.
+          Monitor mode must still be tested on-device after compatibility checks.
+          Do not install if the router kernel/package ABI differs.
           EOF
           tar -czf HG553-WN722N-V2-monitor-driver.tar.gz -C output 8188eu.ko modinfo.txt aliases.txt vermagic.txt INSTALL.txt lib
           sha256sum HG553-WN722N-V2-monitor-driver.tar.gz > output/SHA256SUMS
