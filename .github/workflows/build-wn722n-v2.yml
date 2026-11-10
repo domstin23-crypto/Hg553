@@ -1,4 +1,4 @@
-name: Build HG553 TL-WN722N V2/V3/V4 monitor driver
+name: Build HG553 TL-WN722N V2 monitor driver
 
 on:
   workflow_dispatch:
@@ -13,14 +13,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git wget xz-utils python3 binutils kmod bc flex bison rsync libncurses5-dev gawk unzip file
 
-      - name: Download OpenWrt 23.05.5 SDK and matching source
+      - name: Download OpenWrt SDK and source
         run: |
           wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/openwrt-sdk-23.05.5-bcm63xx-smp_gcc-12.3.0_musl.Linux-x86_64.tar.xz -O sdk.tar.xz
           echo "1e456d67b094eb97f9171a5daf8c8c48ac3dfdf708eea8b70b0e79f6cfe08c28  sdk.tar.xz" | sha256sum -c -
@@ -29,19 +29,19 @@ jobs:
           git clone --depth 1 --branch v23.05.5 https://github.com/openwrt/openwrt.git openwrt
           cp -a sdk/staging_dir openwrt/
 
-      - name: Configure and prepare exact OpenWrt kernel
+      - name: Configure and build matching OpenWrt kernel
         run: |
           set -eux
           wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O openwrt/.config
           echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  openwrt/.config" | sha256sum -c -
           make -C openwrt defconfig
-          make -C openwrt target/linux/prepare V=s
+          make -C openwrt target/linux/compile V=s
           KDIR="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -printf '%h\n' -quit)"
           test -n "$KDIR"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
           echo "KDIR=$KDIR" >> "$GITHUB_ENV"
-          echo "Prepared kernel directory: $KDIR"
+          echo "Prepared and built kernel directory: $KDIR"
 
       - name: Download monitor-mode RTL8188EUS driver
         run: |
@@ -64,7 +64,7 @@ jobs:
           cp driver/8188eu.ko output/
           cp build.log output/
 
-      - name: Verify adapter, kernel and monitor support
+      - name: Verify adapter and kernel metadata
         run: |
           set -eux
           modinfo output/8188eu.ko | tee output/modinfo.txt
@@ -75,19 +75,19 @@ jobs:
           file output/8188eu.ko | tee output/file.txt
           readelf -h output/8188eu.ko | tee output/elf-header.txt
           grep -qi 'big endian' output/elf-header.txt
-          echo "Static checks passed; runtime compatibility still requires testing on the router." | tee output/VERIFIED.txt
+          echo "Static checks passed; runtime compatibility still needs router testing." | tee output/VERIFIED.txt
 
-      - name: Package install bundle
+      - name: Package driver bundle
         run: |
           set -eux
-          mkdir -p output/lib/modules/5.15.167 output/lib/firmware/rtlwifi
+          mkdir -p output/lib/modules/5.15.167
           cp output/8188eu.ko output/lib/modules/5.15.167/
           cat > output/INSTALL.txt <<'EOF'
           HG553 OpenWrt 23.05.5 / kernel 5.15.167
-          USB adapter: TP-Link TL-WN722N V2, USB ID 2357:010c
-          Driver: Aircrack-ng RTL8188EUS
-          Monitor mode must still be tested on-device after compatibility checks.
-          Do not install if the router kernel/package ABI differs.
+          TP-Link TL-WN722N V2 USB ID 2357:010c
+          Aircrack-ng RTL8188EUS driver with monitor configuration
+          Static checks do not guarantee runtime operation.
+          Do not install if the router kernel ABI differs.
           EOF
           tar -czf HG553-WN722N-V2-monitor-driver.tar.gz -C output 8188eu.ko modinfo.txt aliases.txt vermagic.txt INSTALL.txt lib
           sha256sum HG553-WN722N-V2-monitor-driver.tar.gz > output/SHA256SUMS
