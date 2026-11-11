@@ -55,6 +55,16 @@ jobs:
           grep -q 'CONFIG_WIFI_MONITOR = y' driver/Makefile
           sed -i 's/^CONFIG_PLATFORM_I386_PC = y/CONFIG_PLATFORM_I386_PC = n/' driver/Makefile
           sed -i 's/^CONFIG_PLATFORM_MIPS_PLM = n/CONFIG_PLATFORM_MIPS_PLM = y/' driver/Makefile
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("driver/os_dep/linux/os_intfs.c")
+          s = p.read_text()
+          old = "#if defined(CONFIG_NET_NS)\n    dev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));"
+          new = "#if defined(CONFIG_NET_NS) && defined(CONFIG_IOCTL_CFG80211)\n    dev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));"
+          if s.count(old) != 1:
+              raise SystemExit("Expected single upstream CONFIG_NET_NS/wiphy_net block; refusing unsafe patch")
+          p.write_text(s.replace(old, new))
+          PY
 
       - name: Compile for HG553 kernel
         run: |
