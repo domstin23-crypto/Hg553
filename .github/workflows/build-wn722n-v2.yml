@@ -66,6 +66,19 @@ jobs:
           p.write_text(s.replace(old, new))
           PY
 
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("driver/include/ieee80211.h")
+          s = p.read_text()
+          for name in ("is_multicast_mac_addr", "is_zero_mac_addr"):
+              old = "extern __inline int " + name + "("
+              new = "static __inline int " + name + "("
+              if s.count(old) != 1:
+                  raise SystemExit(f"Expected one extern inline definition for {name}; refusing unsafe patch")
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+
       - name: Compile for HG553 kernel
         run: |
           set -eux
