@@ -63,7 +63,7 @@ jobs:
           test -n "$CC"
           test -x "$CC"
           CROSS_COMPILE="${CC%gcc}"
-          make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" modules V=1 2>&1 | tee build.log
+          STAGING_DIR="$PWD/sdk/staging_dir" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m modules V=1 2>&1 | tee build.log
           test -f driver/8188eu.ko
           mkdir -p output
           cp driver/8188eu.ko output/
