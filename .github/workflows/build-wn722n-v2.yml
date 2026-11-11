@@ -75,7 +75,7 @@ jobs:
               needle = "MODULE_DEVICE_TABLE(usb, rtw_usb_id_tbl);"
               if s.count(needle) != 1:
                   raise SystemExit("Could not safely locate USB module table")
-              s = s.replace(needle, needle + "\\n" + alias)
+              s = s.replace(needle, needle + "\n" + alias)
               p.write_text(s)
           PY
 
