@@ -45,6 +45,15 @@ jobs:
           test -n "$KDIR"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
+          ACTUAL_ABI="$(cat "$KDIR/.vermagic")"
+          EXPECTED_ABI="f43cfd6bab68f84c8aed9cf42bde33e6"
+          echo "Router kernel ABI expected: $EXPECTED_ABI"
+          echo "Build kernel ABI actual:   $ACTUAL_ABI"
+          if [ "$ACTUAL_ABI" != "$EXPECTED_ABI" ]; then
+            echo "::error::Kernel ABI mismatch; refusing to build a driver for a different kernel."
+            exit 1
+          fi
+          echo "Exact kernel ABI match confirmed."
           echo "KDIR=$KDIR" >> "$GITHUB_ENV"
           echo "Prepared and built kernel directory: $KDIR"
 
