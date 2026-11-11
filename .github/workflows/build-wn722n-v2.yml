@@ -50,7 +50,9 @@ jobs:
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
-          KDIR="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -printf '%h\\n' -quit)"
+          KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
+          test -n "$KERNEL_MAKEFILE"
+          KDIR="$(dirname "$KERNEL_MAKEFILE")"
           test -n "$KDIR"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
