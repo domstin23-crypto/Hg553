@@ -122,7 +122,7 @@ jobs:
           #error "CONFIG_RTL8188E must be enabled for the WN722N USB table"
           #endif
           MODULE_ALIAS("usb:v2357p010Cd*dc*dsc*dp*ic*isc*ip*in*");"""
-          s = s.replace(anchor, anchor + "\\n" + guard, 1)
+          s = s.replace(anchor, anchor + "\n" + guard, 1)
           p.write_text(s)
           PY
           grep -Fq 'USB_DEVICE(0x2357, 0x010c)' driver/os_dep/linux/usb_intf.c
