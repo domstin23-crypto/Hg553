@@ -108,6 +108,25 @@ jobs:
           p.write_text(s)
           PY
           grep -nE 'static __inline int is_(multicast|broadcast|zero)_mac_addr' driver/include/ieee80211.h
+          # Make the WN722N v2/v3 USB modalias explicit as well as keeping its
+          # real entry in rtw_usb_id_tbl. Fail compilation if the 8188E table
+          # is not enabled, so an alias cannot mask a missing device table.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("driver/os_dep/linux/usb_intf.c")
+          s = p.read_text()
+          anchor = "MODULE_DEVICE_TABLE(usb, rtw_usb_id_tbl);"
+          if s.count(anchor) != 1:
+              raise SystemExit("Expected exactly one USB device table export; refusing unsafe patch")
+          guard = """#ifndef CONFIG_RTL8188E
+          #error "CONFIG_RTL8188E must be enabled for the WN722N USB table"
+          #endif
+          MODULE_ALIAS("usb:v2357p010Cd*dc*dsc*dp*ic*isc*ip*in*");"""
+          s = s.replace(anchor, anchor + "\\n" + guard, 1)
+          p.write_text(s)
+          PY
+          grep -Fq 'USB_DEVICE(0x2357, 0x010c)' driver/os_dep/linux/usb_intf.c
+          grep -Fq 'MODULE_ALIAS("usb:v2357p010Cd*dc*dsc*dp*ic*isc*ip*in*")' driver/os_dep/linux/usb_intf.c
 
       - name: Compile without installing or loading
         run: |
@@ -125,7 +144,8 @@ jobs:
           set -eux
           modinfo output/8188eu.ko | tee output/modinfo.txt
           modinfo -F alias output/8188eu.ko | tee output/aliases.txt
-          grep -qi 'usb:v2357p010C' output/aliases.txt
+          grep -Fqi 'usb:v2357p010Cd*dc*dsc*dp*ic*isc*ip*in*' output/aliases.txt
+          grep -Fqi 'usb:v2357p010C' output/aliases.txt
           modinfo -F vermagic output/8188eu.ko | tee output/vermagic.txt
           grep -q '^5.15.167 ' output/vermagic.txt
           file output/8188eu.ko | tee output/file.txt
