@@ -114,7 +114,7 @@ jobs:
           set -eux
           CC="$(command -v mips-openwrt-linux-musl-gcc)"
           CROSS_COMPILE="${CC%gcc}"
-          STAGING_DIR="$PWD/sdk/staging_dir" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS=-fcommon modules V=1 2>&1 | tee build.log
+          STAGING_DIR="$PWD/sdk/staging_dir" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
           test -f driver/8188eu.ko
           mkdir -p output
           cp driver/8188eu.ko output/
