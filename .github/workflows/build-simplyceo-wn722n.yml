@@ -91,6 +91,23 @@ jobs:
           p.write_text(s.replace(old, new))
           PY
           grep -A2 -B1 'dev_net_set(ndev' driver/os_dep/linux/os_intfs.c
+          # GCC 12 emits duplicate external definitions for these legacy
+          # extern-inline helpers on the 5.15 kernel; give each translation
+          # unit a private inline copy instead.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("driver/include/ieee80211.h")
+          s = p.read_text()
+          names = ("is_multicast_mac_addr", "is_broadcast_mac_addr", "is_zero_mac_addr")
+          for name in names:
+              old = f"extern __inline int {name}("
+              new = f"static __inline int {name}("
+              if s.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one legacy definition for {name}; refusing unsafe patch")
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+          grep -nE 'static __inline int is_(multicast|broadcast|zero)_mac_addr' driver/include/ieee80211.h
 
       - name: Compile without installing or loading
         run: |
