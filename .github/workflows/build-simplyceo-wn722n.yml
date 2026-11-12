@@ -77,6 +77,16 @@ jobs:
           sed -i 's/^CONFIG_PLATFORM_MIPS_PLM = n/CONFIG_PLATFORM_MIPS_PLM = y/' driver/Makefile
           grep -q '^CONFIG_PLATFORM_MIPS_PLM = y' driver/Makefile
           grep -q '^CONFIG_PLATFORM_I386_PC = n' driver/Makefile
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("driver/os_dep/linux/os_intfs.c")
+          s = p.read_text()
+          old = "#if defined(CONFIG_NET_NS)\n    dev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));"
+          new = "#if defined(CONFIG_NET_NS) && defined(CONFIG_IOCTL_CFG80211)\n    dev_net_set(ndev, wiphy_net(adapter_to_wiphy(adapter)));"
+          if s.count(old) != 1:
+              raise SystemExit("Expected exactly one netns/wiphy block; refusing unsafe patch")
+          p.write_text(s.replace(old, new))
+          PY
           git -C driver rev-parse HEAD | tee driver-source-commit.txt
           # This vendor driver references cfg80211 wiphy state even when cfg80211
           # support is disabled. Guard the namespace assignment with both options.
