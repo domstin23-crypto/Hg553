@@ -34,21 +34,27 @@ jobs:
       - name: Configure exact HG553 kernel ABI
         run: |
           set -eux
-          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O sdk/.config
-          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  sdk/.config" | sha256sum -c -
-          echo "CONFIG_BUILDBOT=y" >> sdk/.config
-          echo "CONFIG_TARGET_bcm63xx=y" >> sdk/.config
-          echo "CONFIG_TARGET_bcm63xx_smp=y" >> sdk/.config
-          echo "CONFIG_PACKAGE_kmod-cfg80211=m" >> sdk/.config
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O openwrt/.config
+          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  openwrt/.config" | sha256sum -c -
+          echo "CONFIG_BUILDBOT=y" >> openwrt/.config
+          echo "CONFIG_TARGET_bcm63xx=y" >> openwrt/.config
+          echo "CONFIG_TARGET_bcm63xx_smp=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-cfg80211=m" >> openwrt/.config
           ./openwrt/scripts/feeds update -a
           ./openwrt/scripts/feeds install -a
           make -C openwrt defconfig
-          grep -q '^CONFIG_BUILDBOT=y
+          grep -q '^CONFIG_BUILDBOT=y$' openwrt/.config
+          grep -q '^CONFIG_TARGET_bcm63xx=y$' openwrt/.config
+          grep -q '^CONFIG_TARGET_bcm63xx_smp=y$' openwrt/.config
+          # Keep the SDK's prebuilt toolchain by matching OpenWrt's source revision stamp.
+          TOOLCHAIN_STAMP="openwrt/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl/stamp/.ver_check"
+          test -d "$(dirname "$TOOLCHAIN_STAMP")"
+          git -C openwrt log --format=%h -1 toolchain > "$TOOLCHAIN_STAMP"
+          TOOLCHAIN_BIN="$(dirname "$(find "$PWD/sdk/staging_dir" -name 'mips-openwrt-linux-musl-gcc' -print -quit)")"
           test -d "$TOOLCHAIN_BIN"
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
-          # Use the SDK's prebuilt cross-toolchain; do not rebuild LLVM or the full OpenWrt toolchain.
           make -C openwrt target/linux/compile V=s
           make -C openwrt package/kernel/mac80211/compile V=s
           CFG80211_SYMVERS="$(find openwrt/build_dir -type f -name Module.symvers | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
