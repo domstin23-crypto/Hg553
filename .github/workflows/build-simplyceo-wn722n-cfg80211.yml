@@ -50,6 +50,11 @@ jobs:
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
+          # The SDK toolchain stamp can differ from the source checkout stamp.
+          # Rebuild/install the source-matched toolchain before compiling packages;
+          # otherwise package/kernel/mac80211 may fail while rebuilding libc.
+          make -C openwrt toolchain/install V=s
+          command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
           # OpenWrt 23.05 ships cfg80211 from the mac80211 backports tree,
           # not from the vanilla 5.15 kernel Module.symvers. Build that package
@@ -87,9 +92,6 @@ jobs:
           grep -q '^CONFIG_PLATFORM_MIPS_PLM = y' driver/Makefile
           grep -q '^CONFIG_PLATFORM_I386_PC = n' driver/Makefile
           git -C driver rev-parse HEAD | tee driver-source-commit.txt
-          # Enable cfg80211 through the MIPS big-endian platform block.
-          # This exposes the nl80211 interface used by iw; compilation below
-          # verifies that the selected OpenWrt kernel headers support the API.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("driver/Makefile")
@@ -102,9 +104,6 @@ jobs:
           PY
           grep -A2 '^ifeq ($(CONFIG_PLATFORM_MIPS_PLM)' driver/Makefile
           grep -q 'CONFIG_IOCTL_CFG80211' driver/Makefile
-          # GCC 12 emits duplicate external definitions for these legacy
-          # extern-inline helpers on the 5.15 kernel; give each translation
-          # unit a private inline copy instead.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("driver/include/ieee80211.h")
@@ -119,9 +118,6 @@ jobs:
           p.write_text(s)
           PY
           grep -nE 'static __inline int is_(multicast|broadcast|zero)_mac_addr' driver/include/ieee80211.h
-          # Make the WN722N v2/v3 USB modalias explicit as well as keeping its
-          # real entry in rtw_usb_id_tbl. Fail compilation if the 8188E table
-          # is not enabled, so an alias cannot mask a missing device table.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("driver/os_dep/linux/usb_intf.c")
@@ -184,14 +180,14 @@ jobs:
           Do not load this module on the HG553 without a separate safety review.
           EOF
           tar -czf HG553-SimplyCEO-WN722N-cfg80211-candidate.tar.gz -C output 8188eu.ko modinfo.txt aliases.txt vermagic.txt file.txt elf-header.txt STATUS.txt INSTALL.txt driver-source-commit.txt lib
-          sha256sum HG553-SimplyCEO-WN722N-candidate.tar.gz | tee output/SHA256SUMS
+          sha256sum HG553-SimplyCEO-WN722N-cfg80211-candidate.tar.gz | tee output/SHA256SUMS
 
       - name: Upload candidate artifact
         uses: actions/upload-artifact@v4
         with:
           name: HG553-SimplyCEO-WN722N-cfg80211-candidate
           path: |
-            HG553-SimplyCEO-WN722N-candidate.tar.gz
+            HG553-SimplyCEO-WN722N-cfg80211-candidate.tar.gz
             output/
           if-no-files-found: error
           retention-days: 14
