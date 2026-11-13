@@ -69,10 +69,16 @@ jobs:
           make -C openwrt package/kernel/mac80211/compile V=s
           # OpenWrt merges the backports symbol table into symvers/mac80211.symvers
           # and removes the temporary Module.symvers during package cleanup.
-          CFG80211_SYMVERS="$(find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) | while read f; do grep -q 'cfg80211_rx_mgmt_ext' "$f" && { echo "$f"; break; }; done)"
-          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find any symbol table exporting cfg80211_rx_mgmt_ext (the exported implementation used by the cfg80211_rx_mgmt_khz inline wrapper)."; find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) -print; exit 1; }
+          CFG80211_SYMVERS="$(find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) | while read f; do grep -q 'cfg80211_rx_mgmt_ext' "$f" && grep -q 'cfg80211_mgmt_tx_status_ext' "$f" && { echo "$f"; break; }; done)"
+          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find a cfg80211 symbol table exporting both cfg80211_rx_mgmt_ext and cfg80211_mgmt_tx_status_ext; refusing to build against mismatched wireless APIs."; find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) -print; exit 1; }
           echo "Using cfg80211 symbol table: $CFG80211_SYMVERS"
+          BACKPORT_DIR="$(find openwrt/build_dir -type d -name 'backports-6.1.110-1' -print -quit)"
+          test -n "$BACKPORT_DIR" || { echo "::error::OpenWrt 6.1.110 backports source directory is missing."; exit 1; }
+          test -f "$BACKPORT_DIR/include/net/cfg80211.h" || { echo "::error::Backported cfg80211 header is missing."; exit 1; }
+          test -d "$BACKPORT_DIR/backport-include" || { echo "::error::Backport compatibility headers are missing."; exit 1; }
+          echo "Using backported cfg80211 headers: $BACKPORT_DIR"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
+          echo "BACKPORT_DIR=$PWD/$BACKPORT_DIR" >> "$GITHUB_ENV"
           KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
           test -n "$KERNEL_MAKEFILE"
           KDIR="$(dirname "$KERNEL_MAKEFILE")"
@@ -149,7 +155,15 @@ jobs:
           set -eux
           CC="$(command -v mips-openwrt-linux-musl-gcc)"
           CROSS_COMPILE="${CC%gcc}"
-          STAGING_DIR="$PWD/sdk/staging_dir" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
+          # OpenWrt 23.05.5 runs cfg80211 from backports 6.1.110, not the
+          # in-tree Linux 5.15 wireless API. Put the matching backport headers
+          # before the kernel headers so inline wrappers resolve to exported
+          # *_ext symbols from mac80211.symvers.
+          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" --eval='print-linuxinclude:;@printf "%s\\n" "$(LINUXINCLUDE)"' print-linuxinclude)"
+          test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; exit 1; }
+          BACKPORT_LINUXINCLUDE="-I$BACKPORT_DIR/backport-include -I$BACKPORT_DIR/include $DEFAULT_LINUXINCLUDE"
+          echo "Backport header include order: $BACKPORT_LINUXINCLUDE"
+          STAGING_DIR="$PWD/sdk/staging_dir" LINUXINCLUDE="$BACKPORT_LINUXINCLUDE" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
           test -f driver/8188eu.ko
           grep -q -- '-DCONFIG_IOCTL_CFG80211' build.log
           grep -q -- '-DCONFIG_WIFI_MONITOR' build.log
