@@ -45,26 +45,23 @@ jobs:
           grep -q '^CONFIG_BUILDBOT=y$' openwrt/.config
           grep -q '^CONFIG_TARGET_bcm63xx=y$' openwrt/.config
           grep -q '^CONFIG_TARGET_bcm63xx_smp=y$' openwrt/.config
-          # Restore the complete official 23.05.5 toolchain: the SDK staging copy
-          # does not contain the musl runtime files needed by package/libs/toolchain.
+          # Replace the incomplete SDK toolchain staging tree with the complete
+          # official release toolchain, including compiler binaries and runtime libs.
           wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/openwrt-toolchain-23.05.5-bcm63xx-smp_gcc-12.3.0_musl.Linux-x86_64.tar.xz -O toolchain.tar.xz
           echo "91bd40228ef66a920a6ee4c35ab9d588fc211c36fb90ec855abbe99c21769968  toolchain.tar.xz" | sha256sum -c -
           mkdir toolchain-extract
           tar -xJf toolchain.tar.xz -C toolchain-extract
+          TOOLCHAIN_SRC="$(find toolchain-extract -type d -name 'toolchain-mips_mips32_gcc-12.3.0_musl' -print -quit)"
+          test -n "$TOOLCHAIN_SRC"
+          test -x "$TOOLCHAIN_SRC/bin/mips-openwrt-linux-musl-gcc"
+          test -e "$TOOLCHAIN_SRC/lib/ld-musl-mips-sf.so.1"
           TOOLCHAIN_DIR="$PWD/openwrt/staging_dir/toolchain-mips_mips32_gcc-12.3.0_musl"
-          TOOLCHAIN_LIB="$(find toolchain-extract -name 'ld-musl-*.so*' -print -quit | sed 's#/ld-musl-[^/]*$##')"
-          test -n "$TOOLCHAIN_LIB"
-          test -e "$TOOLCHAIN_LIB"/ld-musl-*.so*
-          mkdir -p "$TOOLCHAIN_DIR/lib"
-          cp -a "$TOOLCHAIN_LIB"/. "$TOOLCHAIN_DIR/lib/"
-          test -e "$TOOLCHAIN_DIR"/lib/ld-musl-*.so*
-          test -e "$TOOLCHAIN_DIR"/lib/libc.so*
-          # Match the source revision stamp only after restoring the real toolchain.
+          cp -a "$TOOLCHAIN_SRC"/. "$TOOLCHAIN_DIR"/
           TOOLCHAIN_STAMP="$TOOLCHAIN_DIR/stamp/.ver_check"
           test -d "$(dirname "$TOOLCHAIN_STAMP")"
           git -C openwrt log --format=%h -1 toolchain > "$TOOLCHAIN_STAMP"
-          TOOLCHAIN_BIN="$(dirname "$(find "$TOOLCHAIN_DIR" -name 'mips-openwrt-linux-musl-gcc' -print -quit)")"
-          test -d "$TOOLCHAIN_BIN"
+          TOOLCHAIN_BIN="$TOOLCHAIN_DIR/bin"
+          test -x "$TOOLCHAIN_BIN/mips-openwrt-linux-musl-gcc"
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
