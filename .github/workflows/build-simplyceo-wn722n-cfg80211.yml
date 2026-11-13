@@ -2,6 +2,10 @@ name: Build HG553 SimplyCEO RTL8188EUS cfg80211 monitor candidate
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-simplyceo-wn722n-cfg80211.yml'
 
 permissions:
   contents: read
