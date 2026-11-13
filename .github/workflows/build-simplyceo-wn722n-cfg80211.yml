@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - name: Install build tools
         run: |
@@ -27,44 +27,34 @@ jobs:
           echo "1e456d67b094eb97f9171a5daf8c8c48ac3dfdf708eea8b70b0e79f6cfe08c28  sdk.tar.xz" | sha256sum -c -
           mkdir sdk
           tar -xJf sdk.tar.xz --strip-components=1 -C sdk
-          git clone --depth 1 --branch v23.05.5 https://github.com/openwrt/openwrt.git openwrt
-          cp -a sdk/staging_dir openwrt/
 
       - name: Configure exact HG553 kernel ABI
         run: |
           set -eux
-          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O openwrt/.config
-          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  openwrt/.config" | sha256sum -c -
-          echo "CONFIG_BUILDBOT=y" >> openwrt/.config
-          echo "CONFIG_TARGET_bcm63xx=y" >> openwrt/.config
-          echo "CONFIG_TARGET_bcm63xx_smp=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-cfg80211=m" >> openwrt/.config
-          ./openwrt/scripts/feeds update -a
-          ./openwrt/scripts/feeds install -a
-          make -C openwrt defconfig
-          grep -q '^CONFIG_BUILDBOT=y$' openwrt/.config
-          grep -q '^CONFIG_TARGET_bcm63xx=y$' openwrt/.config
-          grep -q '^CONFIG_TARGET_bcm63xx_smp=y$' openwrt/.config
+          wget -q https://downloads.openwrt.org/releases/23.05.5/targets/bcm63xx/smp/config.buildinfo -O sdk/.config
+          echo "113ca8c3e750541802c72d73b0849dabc995e44c6c6feec90433943a4be9f0ed  sdk/.config" | sha256sum -c -
+          echo "CONFIG_BUILDBOT=y" >> sdk/.config
+          echo "CONFIG_TARGET_bcm63xx=y" >> sdk/.config
+          echo "CONFIG_TARGET_bcm63xx_smp=y" >> sdk/.config
+          echo "CONFIG_PACKAGE_kmod-cfg80211=m" >> sdk/.config
+          ./sdk/scripts/feeds update -a
+          ./sdk/scripts/feeds install -a
+          make -C sdk defconfig
+          grep -q '^CONFIG_BUILDBOT=y$' sdk/.config
+          grep -q '^CONFIG_TARGET_bcm63xx=y$' sdk/.config
+          grep -q '^CONFIG_TARGET_bcm63xx_smp=y$' sdk/.config
           TOOLCHAIN_BIN="$(dirname "$(find "$PWD/sdk/staging_dir" -name 'mips-openwrt-linux-musl-gcc' -print -quit)")"
           test -d "$TOOLCHAIN_BIN"
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
-          # The SDK toolchain stamp can differ from the source checkout stamp.
-          # Rebuild/install the source-matched toolchain before compiling packages;
-          # otherwise package/kernel/mac80211 may fail while rebuilding libc.
-          make -C openwrt toolchain/install V=s
-          command -v mips-openwrt-linux-musl-gcc
-          make -C openwrt target/linux/compile V=s
-          # OpenWrt 23.05 ships cfg80211 from the mac80211 backports tree,
-          # not from the vanilla 5.15 kernel Module.symvers. Build that package
-          # and pass its exported symbols to the out-of-tree vendor driver.
-          make -C openwrt package/kernel/mac80211/compile V=s
-          CFG80211_SYMVERS="$(find openwrt/build_dir -type f -name Module.symvers | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
-          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find backports Module.symvers exporting cfg80211_rx_mgmt_khz."; find openwrt/build_dir -type f -name Module.symvers -print; exit 1; }
+          # Use the SDK's prebuilt cross-toolchain; do not rebuild LLVM or the full OpenWrt toolchain.
+          make -C sdk package/kernel/mac80211/compile V=s
+          CFG80211_SYMVERS="$(find sdk/build_dir -type f -name Module.symvers | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
+          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find backports Module.symvers exporting cfg80211_rx_mgmt_khz."; find sdk/build_dir -type f -name Module.symvers -print; exit 1; }
           echo "Using cfg80211 symbol table: $CFG80211_SYMVERS"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
-          KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
+          KERNEL_MAKEFILE="$(find sdk/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
           test -n "$KERNEL_MAKEFILE"
           KDIR="$(dirname "$KERNEL_MAKEFILE")"
           test -f "$KDIR/Module.symvers"
