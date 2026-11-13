@@ -38,6 +38,7 @@ jobs:
           echo "CONFIG_BUILDBOT=y" >> openwrt/.config
           echo "CONFIG_TARGET_bcm63xx=y" >> openwrt/.config
           echo "CONFIG_TARGET_bcm63xx_smp=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-cfg80211=m" >> openwrt/.config
           ./openwrt/scripts/feeds update -a
           ./openwrt/scripts/feeds install -a
           make -C openwrt defconfig
@@ -50,6 +51,14 @@ jobs:
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
+          # OpenWrt 23.05 ships cfg80211 from the mac80211 backports tree,
+          # not from the vanilla 5.15 kernel Module.symvers. Build that package
+          # and pass its exported symbols to the out-of-tree vendor driver.
+          make -C openwrt package/kernel/mac80211/compile V=s
+          CFG80211_SYMVERS="$(find openwrt/build_dir -type f -name Module.symvers | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
+          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find backports Module.symvers exporting cfg80211_rx_mgmt_khz."; find openwrt/build_dir -type f -name Module.symvers -print; exit 1; }
+          echo "Using cfg80211 symbol table: $CFG80211_SYMVERS"
+          echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
           KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
           test -n "$KERNEL_MAKEFILE"
           KDIR="$(dirname "$KERNEL_MAKEFILE")"
@@ -135,7 +144,7 @@ jobs:
           set -eux
           CC="$(command -v mips-openwrt-linux-musl-gcc)"
           CROSS_COMPILE="${CC%gcc}"
-          STAGING_DIR="$PWD/sdk/staging_dir" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
+          STAGING_DIR="$PWD/sdk/staging_dir" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
           test -f driver/8188eu.ko
           grep -q -- '-DCONFIG_IOCTL_CFG80211' build.log
           grep -q -- '-DCONFIG_WIFI_MONITOR' build.log
