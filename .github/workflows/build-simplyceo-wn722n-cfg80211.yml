@@ -66,17 +66,26 @@ jobs:
           export PATH="$TOOLCHAIN_BIN:$PATH"
           command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
+          # Prepare the backports source separately and preserve its headers:
+          # the mac80211 compile target removes its temporary source tree at exit.
+          make -C openwrt package/kernel/mac80211/prepare V=s
+          BACKPORT_SRC="$(find openwrt/build_dir -type d -name 'backports-6.1.110-1' -print -quit)"
+          test -n "$BACKPORT_SRC" || { echo "::error::mac80211 prepare did not create the expected backports source tree."; find openwrt/build_dir -maxdepth 6 -type d -name '*backport*' -print; exit 1; }
+          test -f "$BACKPORT_SRC/include/net/cfg80211.h" || { echo "::error::Prepared backports cfg80211 header is missing."; find "$BACKPORT_SRC" -maxdepth 4 -type f -name cfg80211.h -print; exit 1; }
+          test -d "$BACKPORT_SRC/backport-include" || { echo "::error::Prepared backport compatibility headers are missing."; exit 1; }
+          mkdir -p backports-headers
+          cp -a "$BACKPORT_SRC/include" "$BACKPORT_SRC/backport-include" backports-headers/
+          test -f backports-headers/include/net/cfg80211.h
           make -C openwrt package/kernel/mac80211/compile V=s
           # OpenWrt merges the backports symbol table into symvers/mac80211.symvers
-          # and removes the temporary Module.symvers during package cleanup.
+          # and removes the temporary Module.symvers and source tree during package cleanup.
           CFG80211_SYMVERS="$(find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) | while read f; do grep -q 'cfg80211_rx_mgmt_ext' "$f" && grep -q 'cfg80211_mgmt_tx_status_ext' "$f" && { echo "$f"; break; }; done)"
           test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find a cfg80211 symbol table exporting both cfg80211_rx_mgmt_ext and cfg80211_mgmt_tx_status_ext; refusing to build against mismatched wireless APIs."; find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) -print; exit 1; }
           echo "Using cfg80211 symbol table: $CFG80211_SYMVERS"
-          BACKPORT_DIR="$(find openwrt/build_dir -type d -name 'backports-6.1.110-1' -print -quit)"
-          test -n "$BACKPORT_DIR" || { echo "::error::OpenWrt 6.1.110 backports source directory is missing."; exit 1; }
-          test -f "$BACKPORT_DIR/include/net/cfg80211.h" || { echo "::error::Backported cfg80211 header is missing."; exit 1; }
-          test -d "$BACKPORT_DIR/backport-include" || { echo "::error::Backport compatibility headers are missing."; exit 1; }
-          echo "Using backported cfg80211 headers: $BACKPORT_DIR"
+          BACKPORT_DIR="$PWD/backports-headers"
+          test -f "$BACKPORT_DIR/include/net/cfg80211.h" || { echo "::error::Preserved backported cfg80211 header is missing."; exit 1; }
+          test -d "$BACKPORT_DIR/backport-include" || { echo "::error::Preserved backport compatibility headers are missing."; exit 1; }
+          echo "Using preserved OpenWrt 6.1.110 backport headers: $BACKPORT_DIR"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
           echo "BACKPORT_DIR=$PWD/$BACKPORT_DIR" >> "$GITHUB_ENV"
           KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
