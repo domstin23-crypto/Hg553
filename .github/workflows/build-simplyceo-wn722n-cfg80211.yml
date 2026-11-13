@@ -67,8 +67,10 @@ jobs:
           command -v mips-openwrt-linux-musl-gcc
           make -C openwrt target/linux/compile V=s
           make -C openwrt package/kernel/mac80211/compile V=s
-          CFG80211_SYMVERS="$(find openwrt/build_dir -type f -name Module.symvers | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
-          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find backports Module.symvers exporting cfg80211_rx_mgmt_khz."; find openwrt/build_dir -type f -name Module.symvers -print; exit 1; }
+          # OpenWrt merges the backports symbol table into symvers/mac80211.symvers
+          # and removes the temporary Module.symvers during package cleanup.
+          CFG80211_SYMVERS="$(find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) | while read f; do grep -q 'cfg80211_rx_mgmt_khz' "$f" && { echo "$f"; break; }; done)"
+          test -n "$CFG80211_SYMVERS" || { echo "::error::Could not find any symbol table exporting cfg80211_rx_mgmt_khz."; find openwrt/build_dir -type f \( -name Module.symvers -o -name '*.symvers' \) -print; exit 1; }
           echo "Using cfg80211 symbol table: $CFG80211_SYMVERS"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
           KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
