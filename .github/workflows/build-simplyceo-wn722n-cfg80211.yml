@@ -88,9 +88,13 @@ jobs:
           echo "Using preserved OpenWrt 6.1.110 backport headers: $BACKPORT_DIR"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
           echo "BACKPORT_DIR=$PWD/$BACKPORT_DIR" >> "$GITHUB_ENV"
-          KERNEL_MAKEFILE="$(find openwrt/build_dir -type f -path '*/linux-5.15.167/Makefile' -print -quit)"
-          test -n "$KERNEL_MAKEFILE"
+          # Select only the target MIPS kernel tree. A host linux-5.15.167 tree
+          # may also exist and must never be used for this cross-build.
+          KERNEL_MAKEFILE="$(find openwrt/build_dir/target-mips_mips32_musl -type f -path '*/linux-bcm63xx_smp/linux-5.15.167/Makefile' -print -quit)"
+          test -n "$KERNEL_MAKEFILE" || { echo "::error::HG553 target MIPS kernel Makefile not found."; find openwrt/build_dir/target-mips_mips32_musl -maxdepth 5 -type f -name Makefile -print | head -80; exit 1; }
           KDIR="$(dirname "$KERNEL_MAKEFILE")"
+          test -f "$KDIR/.config"
+          grep -q '^CONFIG_MIPS=y' "$KDIR/.config"
           test -f "$KDIR/Module.symvers"
           test -f "$KDIR/include/generated/autoconf.h"
           ACTUAL_ABI="$(cat "$KDIR/.vermagic")"
@@ -168,7 +172,7 @@ jobs:
           # in-tree Linux 5.15 wireless API. Put the matching backport headers
           # before the kernel headers so inline wrappers resolve to exported
           # *_ext symbols from mac80211.symvers.
-          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" --eval='print-linuxinclude:;@printf "%s\\n" "$(LINUXINCLUDE)"' print-linuxinclude)"
+          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" ARCH=mips --eval='print-linuxinclude:;@printf "%s\\n" "$(LINUXINCLUDE)"' print-linuxinclude)"
           test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; exit 1; }
           BACKPORT_LINUXINCLUDE="-I$BACKPORT_DIR/backport-include -I$BACKPORT_DIR/include $DEFAULT_LINUXINCLUDE"
           echo "Backport header include order: $BACKPORT_LINUXINCLUDE"
