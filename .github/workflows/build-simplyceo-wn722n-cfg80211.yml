@@ -176,7 +176,10 @@ jobs:
           test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; exit 1; }
           BACKPORT_LINUXINCLUDE="-I$BACKPORT_DIR/backport-include -I$BACKPORT_DIR/include $DEFAULT_LINUXINCLUDE"
           echo "Backport header include order: $BACKPORT_LINUXINCLUDE"
-          STAGING_DIR="$PWD/sdk/staging_dir" LINUXINCLUDE="$BACKPORT_LINUXINCLUDE" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
+          STAGING_DIR="$PWD/sdk/staging_dir" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" LINUXINCLUDE="$BACKPORT_LINUXINCLUDE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
+          # Fail closed if Kbuild ignored the command-line backports include paths.
+          grep -Fq -- "-I$BACKPORT_DIR/backport-include" build.log
+          grep -Fq -- "-I$BACKPORT_DIR/include" build.log
           test -f driver/8188eu.ko
           grep -q -- '-DCONFIG_IOCTL_CFG80211' build.log
           grep -q -- '-DCONFIG_WIFI_MONITOR' build.log
