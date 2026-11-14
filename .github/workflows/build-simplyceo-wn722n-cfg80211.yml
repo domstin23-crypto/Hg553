@@ -172,7 +172,7 @@ jobs:
           # in-tree Linux 5.15 wireless API. Put the matching backport headers
           # before the kernel headers so inline wrappers resolve to exported
           # *_ext symbols from mac80211.symvers.
-          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" --eval='print-linuxinclude:;@printf "%s " "$(LINUXINCLUDE)"' print-linuxinclude 2>kernel-flags-query.stderr | tr '\\n' ' ')"
+          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" --eval='print-linuxinclude:;@printf "%s " "$(LINUXINCLUDE)"' print-linuxinclude 2>kernel-flags-query.stderr | tr '\n' ' ')"
           test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; cat kernel-flags-query.stderr; exit 1; }
           BACKPORT_LINUXINCLUDE="-I$BACKPORT_DIR/backport-include -I$BACKPORT_DIR/include $DEFAULT_LINUXINCLUDE"
           echo "Backport header include order: $BACKPORT_LINUXINCLUDE"
