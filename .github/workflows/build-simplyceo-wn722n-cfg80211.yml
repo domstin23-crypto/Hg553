@@ -87,7 +87,7 @@ jobs:
           test -d "$BACKPORT_DIR/backport-include" || { echo "::error::Preserved backport compatibility headers are missing."; exit 1; }
           echo "Using preserved OpenWrt 6.1.110 backport headers: $BACKPORT_DIR"
           echo "CFG80211_SYMVERS=$PWD/$CFG80211_SYMVERS" >> "$GITHUB_ENV"
-          echo "BACKPORT_DIR=$PWD/$BACKPORT_DIR" >> "$GITHUB_ENV"
+          echo "BACKPORT_DIR=$BACKPORT_DIR" >> "$GITHUB_ENV"
           # Select only the target MIPS kernel tree. A host linux-5.15.167 tree
           # may also exist and must never be used for this cross-build.
           KERNEL_MAKEFILE="$(find openwrt/build_dir/target-mips_mips32_musl -type f -path '*/linux-bcm63xx_smp/linux-5.15.167/Makefile' -print -quit)"
@@ -172,10 +172,11 @@ jobs:
           # in-tree Linux 5.15 wireless API. Put the matching backport headers
           # before the kernel headers so inline wrappers resolve to exported
           # *_ext symbols from mac80211.symvers.
-          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" ARCH=mips --eval='print-linuxinclude:;@printf "%s\\n" "$(LINUXINCLUDE)"' print-linuxinclude)"
-          test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; exit 1; }
+          DEFAULT_LINUXINCLUDE="$(make -s -C "$KDIR" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" --eval='print-linuxinclude:;@printf "%s " "$(LINUXINCLUDE)"' print-linuxinclude 2>kernel-flags-query.stderr | tr '\\n' ' ')"
+          test -n "$DEFAULT_LINUXINCLUDE" || { echo "::error::Could not read the kernel's default LINUXINCLUDE flags."; cat kernel-flags-query.stderr; exit 1; }
           BACKPORT_LINUXINCLUDE="-I$BACKPORT_DIR/backport-include -I$BACKPORT_DIR/include $DEFAULT_LINUXINCLUDE"
           echo "Backport header include order: $BACKPORT_LINUXINCLUDE"
+          case "$BACKPORT_LINUXINCLUDE" in *"$BACKPORT_DIR/backport-include"*) ;; *) echo "::error::Backports include path missing."; exit 1;; esac
           STAGING_DIR="$PWD/sdk/staging_dir" KBUILD_EXTRA_SYMBOLS="$CFG80211_SYMVERS" make -C "$KDIR" M="$PWD/driver" ARCH=mips CROSS_COMPILE="$CROSS_COMPILE" LINUXINCLUDE="$BACKPORT_LINUXINCLUDE" CONFIG_RTL8188EU=m KCFLAGS="-fcommon -DCONFIG_RTL8188E" modules V=1 2>&1 | tee build.log
           # Fail closed if Kbuild ignored the command-line backports include paths.
           grep -Fq -- "-I$BACKPORT_DIR/backport-include" build.log
